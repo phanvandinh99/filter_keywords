@@ -19,7 +19,7 @@ from playwright.sync_api import (
     Error as PlaywrightError,
     Page,
 )
-from config import PROFILE_PATH, CHROME_PATH, IS_DOCKER
+from config import PROFILE_PATH, CHROME_PATH
 from excel_writer import write_search_results
 from constants import (
     TIME_LABELS,
@@ -791,71 +791,58 @@ def _launch_browser(p, use_temp_profile: bool = False):
     _browser_pid = None
     _temp_dir = None
 
-    if IS_DOCKER:
-        logger.info("🐳 Docker mode (headless Chromium)")
-        _browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox",
-                  "--disable-dev-shm-usage", "--disable-gpu",
-                  "--disable-blink-features=AutomationControlled"],
-        )
-        _browser_context = _browser.new_context(
+    if use_temp_profile:
+        _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
+        logger.info(f"💻 Dùng profile tạm: {_temp_dir}")
+    else:
+        logger.info("💻 Chạy ở chế độ Local (Chrome profile)")
+        _cleanup_chrome_locks(PROFILE_PATH)
+
+    profile_dir = _temp_dir or PROFILE_PATH
+    try:
+        _browser_context = p.chromium.launch_persistent_context(
+            user_data_dir=profile_dir,
+            headless=False,
+            executable_path=CHROME_PATH,
             viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
             user_agent=BROWSER_CONFIG.get("user_agent"),
         )
-    else:
-        if use_temp_profile:
+        logger.info(f"   ✅ Persistent context: {'profile tạm' if _temp_dir else 'profile gốc'}")
+    except Exception as exc:
+        err = str(exc)
+        is_lock = any(k in err for k in (
+            "ProcessSingleton", "profile is already in use",
+            "Lock file", "TargetClosedError",
+        ))
+        if is_lock and not use_temp_profile:
+            logger.warning("[⚠️] Profile bị lock — fallback sang profile tạm")
             _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
-            logger.info(f"💻 Dùng profile tạm: {_temp_dir}")
-        else:
-            logger.info("💻 Chạy ở chế độ Local (Chrome profile)")
-            _cleanup_chrome_locks(PROFILE_PATH)
-
-        profile_dir = _temp_dir or PROFILE_PATH
-        try:
             _browser_context = p.chromium.launch_persistent_context(
-                user_data_dir=profile_dir,
+                user_data_dir=_temp_dir,
                 headless=False,
                 executable_path=CHROME_PATH,
                 viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
                 user_agent=BROWSER_CONFIG.get("user_agent"),
             )
-            logger.info(f"   ✅ Persistent context: {'profile tạm' if _temp_dir else 'profile gốc'}")
-        except Exception as exc:
-            err = str(exc)
-            is_lock = any(k in err for k in (
-                "ProcessSingleton", "profile is already in use",
-                "Lock file", "TargetClosedError",
-            ))
-            if is_lock and not use_temp_profile:
-                logger.warning("[⚠️] Profile bị lock — fallback sang profile tạm")
-                _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
-                _browser_context = p.chromium.launch_persistent_context(
-                    user_data_dir=_temp_dir,
-                    headless=False,
-                    executable_path=CHROME_PATH,
-                    viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
-                    user_agent=BROWSER_CONFIG.get("user_agent"),
-                )
-                logger.info(f"   ✅ Dùng profile tạm: {_temp_dir}")
-            else:
-                raise
+            logger.info(f"   ✅ Dùng profile tạm: {_temp_dir}")
+        else:
+            raise
 
-        # Lấy PID Chrome
-        profile_used = _temp_dir or PROFILE_PATH
-        try:
-            for proc in psutil.process_iter(["pid", "name", "cmdline"]):
-                try:
-                    if "chrome.exe" in (proc.info["name"] or "").lower():
-                        cmd = " ".join(proc.info["cmdline"] or [])
-                        if "--remote-debugging-pipe" in cmd and profile_used in cmd:
-                            _browser_pid = proc.info["pid"]
-                            logger.info(f"   🔢 Chrome PID: {_browser_pid}")
-                            break
-                except Exception:
-                    continue
-        except Exception as exc:
-            logger.warning(f"   ⚠️ Không lấy được PID: {exc}")
+    # Lấy PID Chrome
+    profile_used = _temp_dir or PROFILE_PATH
+    try:
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                if "chrome.exe" in (proc.info["name"] or "").lower():
+                    cmd = " ".join(proc.info["cmdline"] or [])
+                    if "--remote-debugging-pipe" in cmd and profile_used in cmd:
+                        _browser_pid = proc.info["pid"]
+                        logger.info(f"   🔢 Chrome PID: {_browser_pid}")
+                        break
+            except Exception:
+                continue
+    except Exception as exc:
+        logger.warning(f"   ⚠️ Không lấy được PID: {exc}")
 
     return _browser, _browser_context, _browser_pid, _temp_dir
 

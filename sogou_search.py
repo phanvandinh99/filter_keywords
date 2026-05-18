@@ -14,7 +14,7 @@ from playwright.sync_api import (
     Error as PlaywrightError,
     Page,
 )
-from config import PROFILE_PATH, CHROME_PATH, IS_DOCKER
+from config import PROFILE_PATH, CHROME_PATH
 from excel_writer import write_search_results
 from constants import (
     TIMEOUTS,
@@ -574,28 +574,12 @@ def search_sogou_keywords(keywords: List[str]) -> None:
     processed_keywords: set = set()
 
     with sync_playwright() as p:
-        if IS_DOCKER:
-            logger.info("🐳 Sogou: Chạy ở chế độ Docker (headless)")
-            browser_context = p.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--disable-blink-features=AutomationControlled",
-                ],
-            ).new_context(
-                viewport=SOGOU_BROWSER_CONFIG.get("viewport", {"width": 1280, "height": 800}),
-                user_agent=SOGOU_BROWSER_CONFIG.get("user_agent"),
-            )
-        else:
-            browser_context = p.chromium.launch_persistent_context(
-                user_data_dir=PROFILE_PATH,
-                headless=False,
-                executable_path=CHROME_PATH,
-                **SOGOU_BROWSER_CONFIG,
-            )
+        browser_context = p.chromium.launch_persistent_context(
+            user_data_dir=PROFILE_PATH,
+            headless=False,
+            executable_path=CHROME_PATH,
+            **SOGOU_BROWSER_CONFIG,
+        )
 
         page = browser_context.new_page()
         recent_responses, recent_failed_requests, recent_console = _setup_debug_handlers(page)
