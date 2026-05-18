@@ -1,0 +1,134 @@
+CÔNG CỤ KIỂM TRA TỪ KHÓA TRÊN BAIDU MOBILE
+
+Mục tiêu: 
+    Xây dựng công cụ tự động tra cứu danh sách từ khóa trên Baidu Mobile (https://m.baidu.com ) và ghi kết quả trở lại cùng file Excel đầu vào (keywords.xlsx).
+    Kết quả gồm 4 cột:
+        Cột A: Từ khóa gốc
+        Cột B: Tiêu đề bài viết khớp nhất, hoặc "Trùng lặp từ khóa" nếu đã xử lý trước đó trong cùng phiên, hoặc "Lỗi: ..." nếu gặp sự cố khi tải trang
+        Cột C: Tên miền (domain) của nguồn bài viết (ví dụ: www.xlfgs.cn )
+        Cột D: Nhãn thời gian (nếu có): 刚刚发布, 今日发布, hoặc 近期发布 — để trống nếu không có
+
+Cách thức hoạt động:
+2.1. Đọc và xử lý trùng lặp
+    Đọc file keywords.xlsx, lấy danh sách từ khóa từ cột A.
+    Duy trì một tập hợp (set) các từ khóa đã xử lý trong phiên này.
+    Nếu gặp từ khóa trùng lặp:
+        In ra màn hình: [⚠️] Trùng lặp từ khóa: <từ_khóa>
+        Ghi vào Excel: Cột B = "Trùng lặp từ khóa", Cột C và D để trống
+    Không tìm kiếm lại trên Baidu
+2.2. Tìm kiếm trên Baidu Mobile
+
+    Với mỗi từ khóa duy nhất:
+        Duy trì một tab trình duyệt duy nhất trong suốt quá trình chạy
+        Truy cập URL: https://m.baidu.com/s?word= <từ_khóa> (từ khóa được URL-encode tự động)
+        Mô phỏng thiết bị iPhone 12 Pro (user-agent + viewport)
+        Chạy ở chế độ headful (có giao diện) để tương thích với GoLink trên Windows
+    Chặn tải tài nguyên không cần thiết để tăng tốc:
+        page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "stylesheet", "font"] else route.continue_())
+        Chỉ xử lý trang 1 của kết quả tìm kiếm
+        Chờ ngẫu nhiên 2–3 giây trước mỗi từ khóa để tránh bị Baidu chặn
+2.3. Trích xuất dữ liệu từ mỗi khối kết quả
+    Từ mỗi khối kết quả (div.c-container), trích xuất:
+        Tiêu đề (Title): lấy từ thẻ <h3><a>...</a></h3> → dùng .text_content().strip()
+        → Bao gồm cả nội dung trong thẻ <em> (Baidu highlight từ khóa)
+        Tên miền (Domain): lấy từ thẻ <span class="cosc-source-text">
+        → Không lấy URL redirect, chỉ lấy tên miền hiển thị
+    Nhãn thời gian (Time Tag): lấy từ thẻ <div class="tag_5NNp5">
+        → Giá trị hợp lệ: 刚刚发布, 今日发布, 近期发布
+        → Nếu không có → để trống
+2.4. Lọc và chọn kết quả phù hợp
+    Chỉ xét kết quả có tiêu đề chứa nguyên dạng từ khóa:
+    So khớp substring chính xác, không fuzzy match, không chuyển đổi chữ hoa/thường, không chuẩn hóa ký tự
+    Giữ nguyên toàn bộ ký tự gốc: dấu chấm ., gạch ngang -, dấu gạch dưới _, khoảng trắng, ký tự đặc biệt, chữ Trung, v.v.
+    Ví dụ: từ khóa "壹号.ccm" khớp với "壹号.ccm下载..." nhưng không khớp với "壹号ccm下载..."
+    Ưu tiên kết quả khớp:
+    Nếu có nhiều kết quả khớp: ưu tiên theo thứ tự nhãn thời gian: 刚刚发布 → 今日发布 → 近期发布
+    Nếu không có nhãn thời gian: chọn kết quả xuất hiện đầu tiên trên trang (theo thứ tự DOM)
+    Nếu không có kết quả nào khớp nguyên dạng từ khóa: để trống cột B, C, D
+    Cấm tuyệt đối: không dùng re, difflib, fuzzywuzzy, regex, hoặc bất kỳ logic suy diễn nào
+2.5. Ghi kết quả vào Excel
+    Không ghi đè file sau mỗi từ khóa
+    Lưu toàn bộ kết quả vào bộ nhớ (pandas DataFrame)
+    Chỉ ghi file keywords.xlsx một lần duy nhất sau khi xử lý xong toàn bộ danh sách
+    Giữ nguyên cột A, chỉ cập nhật cột B, C, D
+    Khuyến nghị: người dùng nên sao lưu file trước khi chạy
+    Môi trường và công nghệ
+    Hệ điều hành: Windows 10/11
+    Mạng: GoLink VPN đã bật, định tuyến qua Trung Quốc
+    Ngôn ngữ: Python 3.14.0
+    Thư viện chính:
+    playwright — điều khiển trình duyệt, mô phỏng iPhone
+    pandas + openpyxl — đọc/ghi file Excel
+    urllib.parse — xử lý URL encode
+    logging, time, random — hỗ trợ vận hành
+    Không sử dụng: BeautifulSoup, lxml
+    Cấu hình Playwright với GoLinkCN:
+
+    Đường dẫn profile: C:\Users\DINH\AppData\Local\Google\Chrome\User Data\Profile 9
+    Đường dẫn Chrome: C:\Program Files\Google\Chrome\Application\chrome.exe
+    Khởi tạo trình duyệt (code mẫu):
+    from playwright.sync_api import sync_playwright
+    import urllib.parse
+    import time
+    import random
+    import pandas as pd
+
+    PROFILE_PATH = r"C:\Users\DINH\AppData\Local\Google\Chrome\User Data\Profile 9"
+    CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+
+    with sync_playwright() as p:
+    browser = p.chromium.launch_persistent_context(
+    user_data_dir=PROFILE_PATH,
+    headless=False,
+    executable_path=CHROME_PATH,
+    args=[
+    "--start-maximized",
+    "--disable-blink-features=AutomationControlled",
+    "--no-default-browser-check",
+    "--disable-infobars"
+    ],
+    )
+    page = browser.new_page()
+
+    # === KIỂM TRA IP TRUNG QUỐC (1 LẦN DUY NHẤT) ===
+        try:
+            page.goto("https://api.ip.sb/geoip", wait_until="domcontentloaded", timeout=10000)
+            ip_json_text = page.text_content("body")
+            ip_data = json.loads(ip_json_text)
+            if ip_data.get("country_iso") != "CN":
+                raise SystemExit("❌ Không phát hiện IP Trung Quốc. Vui lòng bật GoLinkCN!")
+            print("✅ Xác nhận IP Trung Quốc thành công.")
+        except Exception as e:
+            raise SystemExit(f"❌ Lỗi khi kiểm tra IP: {e}")
+
+        # Chặn tài nguyên không cần thiết
+        page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "stylesheet", "font"] else route.continue_())
+
+Quy tắc vận hành
+Selector đáng tin cậy:
+    Khối kết quả: div.c-container
+    Tiêu đề: h3 a
+    Domain: span.cosc-source-text
+    Time tag: div.tag_5NNp5
+Xử lý lỗi chi tiết:
+    TimeoutError → ghi "Lỗi: Timeout khi tải trang"
+    Lỗi mạng/selector → ghi "Lỗi: <mô tả ngắn>"
+    Luôn ghi lỗi vào cột B, C/D để trống
+    Hiển thị tiến trình:
+    In ra: [🔍] Đang xử lý: <từ_khóa>
+    In cảnh báo trùng lặp
+    Tự động chờ: time.sleep(random.uniform(2, 3)) giữa các từ khóa
+    Luồng xử lý tổng quát
+    Đọc keywords.xlsx → lấy cột A
+    Khởi tạo trình duyệt + tab + kiểm tra IP Trung Quốc qua api.ip.sb
+Duyệt từng từ khóa:
+    a. Nếu trùng lặp → ghi "Trùng lặp từ khóa"
+    b. Nếu mới:
+    - page.goto(...) đến URL Baidu
+    - Chờ div.c-container xuất hiện (wait_for_selector)
+    - Trích xuất tất cả khối kết quả
+    - Lọc & chọn kết quả khớp tốt nhất
+    - Lưu kết quả vào DataFrame
+    - Chờ ngẫu nhiên 2–3 giây
+    Ghi toàn bộ DataFrame vào keywords.xlsx (1 lần duy nhất)
+    In báo cáo tổng kết: tổng số từ khóa, số trùng lặp, số thành công, số lỗi

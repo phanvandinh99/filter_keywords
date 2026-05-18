@@ -1,0 +1,31 @@
+services:
+  baidu-checker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: baidu-keyword-checker:latest
+    container_name: baidu-keyword-checker
+
+    # Biến môi trường — copy .env.example → .env rồi chỉnh sửa
+    env_file:
+      - .env
+
+    volumes:
+      # Thư mục data: chứa keywords.xlsx (input/output)
+      - ./data:/app/data
+      # Thư mục log: chứa debug artifacts (screenshot, HTML)
+      - ./log:/app/log
+      # input_keywords.txt: file từ khóa đầu vào (chỉnh sửa trực tiếp trên host)
+      - ./input_keywords.txt:/app/input_keywords.txt
+      # Bannedkeywords.txt: danh sách từ cấm
+      - ./Bannedkeywords.txt:/app/Bannedkeywords.txt
+
+    # Giữ stdin mở để menu tương tác hoạt động
+    stdin_open: true
+    tty: true
+
+    # Giới hạn tài nguyên (tuỳ chỉnh theo máy)
+    deploy:
+      resources:
+        limits:
+          memory: 1g

@@ -1,0 +1,6 @@
+playwright>=1.46
+pandas>=2.0
+openpyxl>=3.1
+
+# Sau khi cài đặt, chạy lệnh sau để cài đặt browser:
+# playwright install chromium

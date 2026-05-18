@@ -1,0 +1,3 @@
+# Danh sách từ khóa cần lấy gợi ý từ Baidu (mỗi từ khóa một dòng)
+# Dòng bắt đầu bằng # sẽ bị bỏ qua
+
