@@ -100,8 +100,8 @@ function initGrid() {
   gridApi = agGrid.createGrid(document.getElementById('myGrid'), {
     columnDefs: COL_DEFS,
     rowData: [],
-    rowHeight: 30,
-    headerHeight: 33,
+    rowHeight: 20,
+    headerHeight: 23,
     rowClassRules: {
       'row-error':     p => String(p.data?.title || '').startsWith('Lỗi'),
       'row-duplicate': p => p.data?.title === 'Trùng lặp từ khóa',
@@ -139,7 +139,8 @@ function initGrid() {
     defaultColDef: {
       resizable: true, suppressMovable: false, enableCellChangeFlash: true,
       cellClassRules: {
-        'cell-selected': p => selectedCells.has(`${p.node.rowIndex}:${p.column.getColId()}`)
+        'cell-selected': p => selectedCells.has(`${p.node.rowIndex}:${p.column.getColId()}`),
+        'cell-cut':      p => cutCells.has(`${p.node.rowIndex}:${p.column.getColId()}`)
       }
     },
     getRowId: p => String(p.data.stt),
@@ -336,11 +337,20 @@ document.addEventListener('keydown', e => {
   if (document.querySelector('.ag-cell-inline-editing')) return;
 
   if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (selectedCells.size > 0) { e.preventDefault(); clearSelectedCellsContent(); }
+    if (selectedCells.size > 0 || (gridApi?.getSelectedNodes().length ?? 0) > 0) {
+      e.preventDefault(); clearSelectedCellsContent();
+    }
   } else if (e.key === 'Escape') {
     clearCellSelection();
-  } else if (e.key === 'c' && e.ctrlKey) {
+    clearCutBuffer(); // hủy cut khi Esc
+  } else if (e.key === 'c' && e.ctrlKey && !e.shiftKey) {
     if (selectedCells.size > 0) { e.preventDefault(); copyCellSelection(); }
+  } else if (e.key === 'x' && e.ctrlKey) {
+    if (selectedCells.size > 0) { e.preventDefault(); performCut(); }
+  } else if (e.key === 'ArrowDown' && e.ctrlKey && e.shiftKey) {
+    e.preventDefault(); selectToEndOfColumn('down');
+  } else if (e.key === 'ArrowUp' && e.ctrlKey && e.shiftKey) {
+    e.preventDefault(); selectToEndOfColumn('up');
   }
 }, true);
 
@@ -360,6 +370,9 @@ document.addEventListener('paste', async e => {
   const anchorRowIdx = focused?.rowIndex ?? null;
 
   await handleGridPaste(text, anchorField, anchorRowIdx);
+
+  // Nếu vừa thực hiện Cut trước đó → xóa ô gốc sau khi paste xong
+  if (cutCells.size > 0) clearCutBuffer();
 });
 
 // ── WebSocket ──────────────────────────────────────────────────
@@ -470,11 +483,9 @@ document.getElementById('btn-save').onclick = async () => {
   catch (e) { toast('Lỗi lưu', 'error'); }
 };
 
-document.getElementById('btn-clear-all').onclick = async () => {
-  if (!confirm('Xóa TẤT CẢ dữ liệu? Hành động này không thể hoàn tác!')) return;
-  setGridDataEnsuringEmptyRow([]);
-  await saveData([]);
-  toast('Đã xóa tất cả', 'success');
+document.getElementById('btn-clear-all').onclick = () => {
+  gridApi.resetColumnState();
+  toast('Đã reset cột về mặc định', 'success');
 };
 
 document.getElementById('btn-clear-results').onclick = async () => {
@@ -489,35 +500,8 @@ document.getElementById('btn-clear-log').onclick = () => {
   document.getElementById('log-body').innerHTML = '';
 };
 
-// ── Add / Delete rows ──────────────────────────────────────────
-document.getElementById('btn-add-row').onclick = addRowFromInput;
-document.getElementById('quick-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addRowFromInput(); }
-});
 
-// Smart paste trong quick-input: nếu có tab hoặc nhiều dòng → vào bảng
-document.getElementById('quick-input').addEventListener('paste', e => {
-  const text = (e.clipboardData || window.clipboardData).getData('text');
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length > 1 || lines[0]?.includes('\t')) {
-    e.preventDefault();
-    document.getElementById('quick-input').value = '';
-    // Paste vào cuối bảng, bắt đầu từ cột keyword
-    handleGridPaste(text, 'keyword', null);
-  }
-});
-
-function addRowFromInput() {
-  const inp = document.getElementById('quick-input');
-  const kw = inp.value.trim();
-  if (!kw) return;
-  const rows = getAllRows();
-  rows.push({ stt: rows.length + 1, keyword: kw, title: '', domain: '', time_tag: '', main_title: '' });
-  setGridDataEnsuringEmptyRow(rows);
-  inp.value = '';
-  inp.focus();
-  autoSave();
-}
+// ── Delete rows ──────────────────────────────────────────────────
 
 // Hàm xóa dòng đang chọn (dùng chung cho button & phím Delete)
 async function deleteSelectedRows() {
@@ -614,6 +598,8 @@ connectWS();
 
 // ── Cell Selection (kiểu Excel) ───────────────────────────────
 const selectedCells = new Set();  // Set<"rowIndex:colId">
+const cutCells      = new Set();  // cells đang trong trạng thái "cut"
+const cutBuffer     = new Map();  // cellKey → value (để clear sau paste)
 let cellAnchor   = null;          // { ri, colId } điểm bắt đầu
 let cellLastEnd  = null;          // { ri, colId } điểm cuối hiện tại
 let isCellDrag   = false;
@@ -678,33 +664,59 @@ function refreshCellRange(r1, c1Id, r2, c2Id) {
   }
 }
 
-// Xóa nội dung các ô đã chọn (hoặc xóa dòng nếu có tick checkbox)
+// Xóa nội dung các ô đã chọn (hoặc xóa dòng nếu chọn ô STT hoặc có tick checkbox)
 function clearSelectedCellsContent() {
   // Ưu tiên: nếu có dòng được tick checkbox → xóa dòng
   const checkedRows = gridApi?.getSelectedNodes() || [];
-  if (checkedRows.length > 0) {
-    deleteSelectedRows();
-    return;
-  }
-  // Không có checkbox tick → xóa nội dung các ô đã chọn
+  if (checkedRows.length > 0) { deleteSelectedRows(); return; }
+
   if (selectedCells.size === 0) {
     const fc = gridApi?.getFocusedCell();
     if (!fc) return;
     const col = fc.column.getColId();
-    if (col === 'stt') return;
+    if (col === 'stt') {
+      // Focus đang ở cột STT → xóa dòng đó
+      const node = gridApi.getDisplayedRowAtIndex(fc.rowIndex);
+      if (node?.data?.stt != null) {
+        const idToDel = node.data.stt;
+        const remaining = getAllRows().filter(r => r.stt !== idToDel);
+        setGridDataEnsuringEmptyRow(remaining); autoSave();
+        toast('Đã xóa 1 dòng', 'info');
+      }
+      return;
+    }
     const node = gridApi.getDisplayedRowAtIndex(fc.rowIndex);
     if (node?.data) { node.setDataValue(col, ''); autoSave(); }
     return;
   }
-  let count = 0;
+
+  // Tách các ô STT (= xóa dòng) và các ô thường (= xóa nội dung)
+  const sttRowIdxSet = new Set();
+  let contentCount = 0;
   for (const key of selectedCells) {
     const sep = key.lastIndexOf(':');
     const ri = +key.slice(0, sep), colId = key.slice(sep + 1);
-    if (colId === 'stt') continue;
-    const node = gridApi?.getDisplayedRowAtIndex(ri);
-    if (node?.data) { node.setDataValue(colId, ''); count++; }
+    if (colId === 'stt') {
+      sttRowIdxSet.add(ri);
+    } else {
+      const node = gridApi?.getDisplayedRowAtIndex(ri);
+      if (node?.data) { node.setDataValue(colId, ''); contentCount++; }
+    }
   }
-  if (count > 0) { autoSave(); toast(`Đã xóa ${count} ô`, 'info'); }
+
+  if (sttRowIdxSet.size > 0) {
+    // Xóa các dòng có ô STT được chọn
+    const idsToDelete = new Set(
+      [...sttRowIdxSet].map(ri => gridApi.getDisplayedRowAtIndex(ri)?.data?.stt).filter(v => v != null)
+    );
+    const remaining = getAllRows().filter(r => !idsToDelete.has(r.stt));
+    setGridDataEnsuringEmptyRow(remaining);
+    clearCellSelection();
+    toast(`Đã xóa ${idsToDelete.size} dòng`, 'info');
+  } else if (contentCount > 0) {
+    toast(`Đã xóa ${contentCount} ô`, 'info');
+  }
+  autoSave();
 }
 
 // Copy các ô đã chọn (tab-separated, Excel-compatible)
@@ -722,6 +734,85 @@ function copyCellSelection() {
   });
   navigator.clipboard.writeText(lines.join('\n'));
   toast(`Đã copy ${selectedCells.size} ô`, 'success');
+}
+
+// Cut: đánh dấu ô bằng viền nét đứt, copy clipboard, xóa gốc SAU KHI paste
+function performCut() {
+  if (selectedCells.size === 0) return;
+  copyCellSelection();        // copy vào clipboard
+  cutCells.clear(); cutBuffer.clear();
+  for (const key of selectedCells) {
+    const sep = key.lastIndexOf(':');
+    const ri = +key.slice(0, sep), colId = key.slice(sep + 1);
+    const node = gridApi.getDisplayedRowAtIndex(ri);
+    cutCells.add(key);
+    cutBuffer.set(key, node?.data?.[colId] ?? '');
+  }
+  // Refresh để hiện class cell-cut
+  for (const [ri, cols] of _cellsByRow(cutCells))
+    gridApi.refreshCells({ rowNodes: [gridApi.getDisplayedRowAtIndex(+ri)].filter(Boolean), columns: cols, force: true });
+  toast(`✂️ Cut ${cutCells.size} ô — Ctrl+V để dán`, 'info');
+}
+
+// Xóa ô gốc sau khi paste xong (hoàn tất Cut)
+function clearCutBuffer() {
+  if (cutCells.size === 0) return;
+  // Xóa giá trị ô gốc
+  for (const key of cutCells) {
+    const sep = key.lastIndexOf(':');
+    const ri = +key.slice(0, sep), colId = key.slice(sep + 1);
+    const node = gridApi.getDisplayedRowAtIndex(ri);
+    if (node?.data) node.setDataValue(colId, '');
+  }
+  // Lưu danh sách row/col cần refresh TRƯỚC KHI clear
+  const rowMap = _cellsByRow(cutCells);
+  // Clear TRƯỚC khi refresh → cellClassRules sẽ không thấy cell-cut nữa
+  cutCells.clear();
+  cutBuffer.clear();
+  for (const [ri, cols] of rowMap) {
+    const node = gridApi.getDisplayedRowAtIndex(+ri);
+    if (node) gridApi.refreshCells({ rowNodes: [node], columns: cols, force: true });
+  }
+  autoSave();
+}
+
+// Helper: gom cells theo row → Map<ri, colId[]>
+function _cellsByRow(cellSet) {
+  const m = new Map();
+  for (const key of cellSet) {
+    const sep = key.lastIndexOf(':');
+    const ri = key.slice(0, sep), colId = key.slice(sep + 1);
+    if (!m.has(ri)) m.set(ri, []);
+    m.get(ri).push(colId);
+  }
+  return m;
+}
+
+// Ctrl+Shift+Down / Up: chọn từ ô hiện tại đến cuối / đầu dữ liệu trong cột
+function selectToEndOfColumn(direction) {
+  const anchor = cellAnchor || (() => {
+    const fc = gridApi.getFocusedCell();
+    return fc ? { ri: fc.rowIndex, colId: fc.column.getColId() } : null;
+  })();
+  if (!anchor || anchor.colId === 'stt') return;
+  const { ri: startRi, colId } = anchor;
+  const total = (gridApi.getDisplayedRowCount() || 1) - 1; // trừ hàng trống cuối
+  let endRi = startRi;
+  if (direction === 'down') {
+    for (let i = startRi + 1; i <= total; i++) {
+      const v = gridApi.getDisplayedRowAtIndex(i)?.data?.[colId] ?? '';
+      if (v !== '') endRi = i; else break;
+    }
+    if (endRi === startRi) endRi = total;
+  } else {
+    for (let i = startRi - 1; i >= 0; i--) {
+      const v = gridApi.getDisplayedRowAtIndex(i)?.data?.[colId] ?? '';
+      if (v !== '') endRi = i; else break;
+    }
+    if (endRi === startRi) endRi = 0;
+  }
+  cellAnchor = anchor;
+  refreshCellRange(startRi, colId, endRi, colId);
 }
 
 // Mouse handlers
@@ -760,11 +851,11 @@ function copyCellSelection() {
       return; // để AG Grid xử lý click checkbox
     }
 
-    // Click vào ô dữ liệu → cell selection
+    // Click vào ô dữ liệu (kể cả STT) → cell selection
     rowDragAnchor = null;
     const rowIdx = getRowIdx(e.target);
     const colId  = getColId(e.target);
-    if (rowIdx === null || !colId || colId === 'stt') return;
+    if (rowIdx === null || !colId) return;
 
     gridHasFocus = true;
     gridApi?.stopEditing(true);
@@ -804,7 +895,7 @@ function copyCellSelection() {
     if (!cellAnchor) return;
     if (isCheckboxArea(elUnder)) return;
     const colId = getColId(elUnder);
-    if (rowIdx === null || !colId || colId === 'stt') return;
+    if (rowIdx === null || !colId) return;
 
     if (!isCellDrag && rowIdx === cellAnchor.ri && colId === cellAnchor.colId) return;
     isCellDrag = true;
@@ -830,6 +921,31 @@ function copyCellSelection() {
       const node = gridApi?.getDisplayedRowAtIndex(cellAnchor.ri);
       if (node) gridApi.refreshCells({ rowNodes: [node], columns: [cellAnchor.colId], force: true });
     }
+  });
+
+  // Click vào HEADER cột → chọn toàn bộ ô trong cột đó
+  gridEl.addEventListener('click', e => {
+    const headerCell = e.target.closest('.ag-header-cell');
+    if (!headerCell) return;
+    const colId = headerCell.getAttribute('col-id');
+    if (!colId || colId === 'ag-Grid-SelectionColumn') return;
+
+    const total = (gridApi.getDisplayedRowCount() || 1) - 1;
+    if (total < 0) return;
+    clearCellSelection();
+    for (let ri = 0; ri <= total; ri++) {
+      const node = gridApi.getDisplayedRowAtIndex(ri);
+      if (node?.data?.[colId] !== undefined) selectedCells.add(cellKey(ri, colId));
+    }
+    // Refresh tất cả ô trong cột
+    const nodes = [];
+    for (let ri = 0; ri <= total; ri++) {
+      const n = gridApi.getDisplayedRowAtIndex(ri);
+      if (n) nodes.push(n);
+    }
+    gridApi.refreshCells({ rowNodes: nodes, columns: [colId], force: true });
+    cellAnchor = { ri: 0, colId };
+    toast(`Đã chọn cột "${colId}" (${selectedCells.size} ô)`, 'info');
   });
 })();
 
