@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Keyword Tool</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.2/dist/ag-grid-community.min.js"></script>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>🔑 Keyword Tool</h1>
+  <button class="theme-btn" id="btn-theme" title="Chuyển sáng/tối">☀️ Sáng</button>
+  <div class="ws-dot" id="ws-dot" title="WebSocket"></div>
+</div>
+
+<div id="toolbar">
+  <button class="btn" id="btn-dedup">🧹 Trùng lặp</button>
+  <button class="btn danger" id="btn-banned">🚫 Từ cấm</button>
+  <div class="sep"></div>
+  <button class="btn primary" id="btn-baidu">🔍 Baidu</button>
+  <button class="btn primary" id="btn-baidu-detail">🔍 Baidu CT</button>
+  <button class="btn primary" id="btn-google">🌐 Google</button>
+  <button class="btn primary" id="btn-sogou">🔎 Sogou</button>
+  <button class="btn stop" id="btn-stop" style="display:none">■ Dừng</button>
+  <div class="sep"></div>
+  <button class="btn" id="btn-import">📥 Import</button>
+  <button class="btn success" id="btn-export">📤 Export</button>
+  <button class="btn" id="btn-edit-banned">✏️ Từ cấm</button>
+  <button class="btn" id="btn-settings">⚙️ Cài đặt</button>
+  <div class="sep"></div>
+  <button class="btn" id="btn-save">💾 Lưu</button>
+  <button class="btn" id="btn-clear-results">🗑 Xóa KQ</button>
+  <input type="file" id="file-input" accept=".xlsx" style="display:none">
+  <span class="kw-count" id="kw-count">0 từ khóa</span>
+  <span class="row-count" id="row-count">0 dòng</span>
+</div>
+
+<div id="quick-add">
+  <input type="text" id="quick-input"
+    placeholder="Nhập từ khóa → Enter để thêm | Paste nhiều dòng (tab-separated: từ khóa[Tab]tiêu đề) sẽ tự điền đúng cột">
+  <button class="btn" id="btn-add-row">＋ Thêm</button>
+  <button class="btn danger" id="btn-del-row">🗑 Xóa dòng</button>
+  <button class="btn danger" id="btn-clear-all">✕ Clear</button>
+</div>
+
+<div class="paste-hint">
+  💡 Click chọn ô → Ctrl+V để paste | Double-click để sửa trực tiếp | Dữ liệu tab-separated (Excel) sẽ điền đúng cột từ vị trí đó
+</div>
+
+<div id="main">
+  <div id="grid-wrap">
+    <div id="myGrid" class="ag-theme-alpine"></div>
+  </div>
+
+  <div id="progress-bar-wrap">
+    <div id="progress-info">
+      <span><span id="progress-cur">0</span>/<span id="progress-tot">0</span> — <span id="progress-kw"></span></span>
+      <span id="progress-pct">0%</span>
+    </div>
+    <div id="progress-track"><div id="progress-fill" style="width:0%"></div></div>
+  </div>
+
+  <div id="log-wrap">
+    <div id="log-header">
+      <span>📋 Log</span>
+      <button class="btn" id="btn-clear-log" style="padding:2px 8px;font-size:11px">Xóa</button>
+      <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer">
+        <input type="checkbox" id="auto-scroll" checked> Auto scroll
+      </label>
+    </div>
+    <div id="log-body"></div>
+  </div>
+</div>
+
+<!-- Modal Settings -->
+<div class="modal-overlay" id="modal-settings">
+  <div class="modal">
+    <h2>⚙️ Cài Đặt Chrome</h2>
+    <div class="form-group">
+      <label>Chrome Profile Path</label>
+      <input type="text" id="set-profile">
+    </div>
+    <div class="form-group">
+      <label>Chrome Executable Path</label>
+      <input type="text" id="set-chrome">
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="btn-settings-cancel">Hủy</button>
+      <button class="btn primary" id="btn-settings-save">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Banned -->
+<div class="modal-overlay" id="modal-banned">
+  <div class="modal">
+    <h2>🚫 Danh Sách Từ Cấm</h2>
+    <div class="form-group">
+      <label>Mỗi từ cấm một dòng</label>
+      <textarea id="banned-content" rows="10"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="btn-banned-cancel">Hủy</button>
+      <button class="btn primary" id="btn-banned-save">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -872,7 +872,8 @@ def _close_browser(browser, browser_context, browser_pid, temp_dir=None) -> None
             pass
 
 
-def _search_keywords_common(keywords: List[str], is_detailed: bool = False) -> None:
+def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
+                            on_progress=None, on_result=None, stop_event=None) -> None:
     """Hàm chung để tìm kiếm từ khóa (thông thường hoặc chi tiết)"""
     if not keywords:
         logger.error("❌ Không có từ khóa để tìm kiếm!")
@@ -903,6 +904,13 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False) -> N
             total = len(keywords)
 
             for idx, kw in enumerate(keywords, start=1):
+                # Kiểm tra stop signal
+                if stop_event and stop_event.is_set():
+                    logger.info("⏹ Đã dừng tìm kiếm Baidu.")
+                    break
+                # Gọi on_progress
+                if on_progress:
+                    on_progress(idx, total, kw)
                 # Khôi phục page nếu bị đóng hoặc không còn dùng được
                 _page_ok = False
                 try:
@@ -920,8 +928,7 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False) -> N
                         logger.info("[✅] Đã tạo page mới thành công")
                     except Exception as e:
                         logger.error(f"[❌] Không thể tạo page mới: {e}")
-                        # Ghi lỗi cho từ khóa hiện tại và tất cả từ khóa còn lại
-                        remaining = keywords[idx - 1:]  # idx bắt đầu từ 1
+                        remaining = keywords[idx - 1:]
                         for _rem_kw in remaining:
                             results.append(("Lỗi: Không thể tạo page mới", "", "", False, "", ""))
                             counters["error"] += 1
@@ -937,6 +944,10 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False) -> N
                 if result[0] == "__CAPTCHA_SKIPPED__":
                     logger.warning(f"[⏭] Người dùng bỏ qua captcha: {kw}")
                     result = ("Lỗi: Bị captcha Baidu", "", "", False, "", "")
+
+                # Gọi on_result ngay sau khi có kết quả
+                if on_result:
+                    on_result(idx, kw, result)
 
                 if result[0] == "Trùng lặp từ khóa":
                     counters["duplicate"] += 1
@@ -1008,11 +1019,13 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False) -> N
         logger.info("[ℹ️] Không có kết quả để ghi.")
 
 
-def search_keywords(keywords: List[str]) -> None:
+def search_keywords(keywords: List[str], on_progress=None, on_result=None, stop_event=None) -> None:
     """Tìm kiếm từ khóa trên Baidu (thông thường)"""
-    _search_keywords_common(keywords, is_detailed=False)
+    _search_keywords_common(keywords, is_detailed=False,
+                            on_progress=on_progress, on_result=on_result, stop_event=stop_event)
 
 
-def search_keywords_detailed(keywords: List[str]) -> None:
+def search_keywords_detailed(keywords: List[str], on_progress=None, on_result=None, stop_event=None) -> None:
     """Tìm kiếm từ khóa trên Baidu với chi tiết (nhấn button 3 lần)"""
-    _search_keywords_common(keywords, is_detailed=True)
+    _search_keywords_common(keywords, is_detailed=True,
+                            on_progress=on_progress, on_result=on_result, stop_event=stop_event)

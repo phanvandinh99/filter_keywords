@@ -377,7 +377,7 @@ def _process_google_keyword(
         return (error_msg, "", "", False, "", "")
 
 
-def search_google_keywords(keywords: List[str]) -> None:
+def search_google_keywords(keywords: List[str], on_progress=None, on_result=None, stop_event=None) -> None:
     """Tìm kiếm từ khóa trên Google"""
     if not keywords:
         logger.error("❌ Không có từ khóa để tìm kiếm trên Google!")
@@ -403,6 +403,11 @@ def search_google_keywords(keywords: List[str]) -> None:
         error_count = 0
 
         for idx, kw in enumerate(keywords, start=1):
+            if stop_event and stop_event.is_set():
+                logger.info("⏹ Đã dừng tìm kiếm Google.")
+                break
+            if on_progress:
+                on_progress(idx, total, kw)
             # Khôi phục page nếu bị đóng
             try:
                 _ = page.url
@@ -414,6 +419,8 @@ def search_google_keywords(keywords: List[str]) -> None:
                 page, kw, idx, total, processed_keywords,
                 recent_responses, recent_failed_requests, recent_console,
             )
+            if on_result:
+                on_result(idx, kw, result)
 
             if result[0] == "Trùng lặp từ khóa":
                 duplicate_count += 1
