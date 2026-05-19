@@ -1,0 +1,62 @@
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# ── Environment & Secrets ──────────────────────────────────────
+.env
+*.env
+# Giữ lại file mẫu
+!.env.example
+
+# ── Data & Output files ────────────────────────────────────────
+# File JSON runtime (data thực tế không commit)
+data/keywords.json
+# File Excel output
+*.xlsx
+# File log
+log/
+*.log
+
+# Giữ lại thư mục data rỗng
+!data/.gitkeep
+
+# ── Playwright / Browser ───────────────────────────────────────
+# Cache browser của Playwright (nặng, không commit)
+playwright-browsers/
+.playwright/
+test-results/
+playwright-report/
+
+# ── IDE & Editor ───────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Temp & Debug files ─────────────────────────────────────────
+*.tmp
+*.bak
+dump*.txt
+analyze_*.py
+request.txt
+
+# ── OS ────────────────────────────────────────────────────────
+desktop.ini

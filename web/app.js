@@ -253,15 +253,19 @@ const PASTEABLE_COLS = ['keyword', 'title', 'domain', 'time_tag', 'main_title'];
 async function handleGridPaste(rawText, anchorField, anchorRowIdx) {
   if (!rawText?.trim()) return;
 
-  const lines = rawText.split(/\r?\n/).filter(l => l.trim());
+  // Giữ nguyên dòng trống để giữ đúng vị trí như Excel gốc
+  // Chỉ bỏ các dòng rỗng ở đuôi
+  let lines = rawText.split(/\r?\n/);
+  while (lines.length > 0 && !lines[lines.length - 1].trim()) lines.pop();
   if (!lines.length) return;
 
   // Xác định offset cột bắt đầu
   let colOffset = PASTEABLE_COLS.indexOf(anchorField);
-  if (colOffset < 0) colOffset = 0; // mặc định bắt đầu từ keyword
+  if (colOffset < 0) colOffset = 0;
 
-  // Parse từng dòng clipboard
+  // Parse từng dòng clipboard (kể cả dòng trống)
   const parsed = lines.map(line => {
+    if (!line.trim()) return null; // dòng trống → giữ ô gốc nguyên vẹn
     const cols = line.split('\t');
     const updates = {};
     cols.forEach((val, i) => {
@@ -279,7 +283,7 @@ async function handleGridPaste(rawText, anchorField, anchorRowIdx) {
     : allRows.length;
 
   // Trường hợp đặc biệt: 1 dòng, 1 cột → điền đúng 1 ô
-  const isSingleCell = parsed.length === 1 && Object.keys(parsed[0]).length === 1;
+  const isSingleCell = parsed.length === 1 && parsed[0] !== null && Object.keys(parsed[0]).length === 1;
   if (isSingleCell && startAt < allRows.length) {
     Object.assign(allRows[startAt], parsed[0]);
     setGridDataEnsuringEmptyRow(allRows);
@@ -290,25 +294,33 @@ async function handleGridPaste(rawText, anchorField, anchorRowIdx) {
   }
 
   // Nhiều dòng hoặc nhiều cột
+  let filledCount = 0;
   parsed.forEach((updates, i) => {
     const targetIdx = startAt + i;
+    if (updates === null) return; // dòng trống trong clipboard → bỏ qua, không ghi đè ô gốc
     if (targetIdx < allRows.length) {
       Object.entries(updates).forEach(([field, val]) => {
         if (val !== '') allRows[targetIdx][field] = val;
       });
     } else {
+      // Thêm các hàng mới nếu vượt quá
+      // Đảm bảo đủ hàng trống để giữ đúng offset
+      while (allRows.length < targetIdx) {
+        allRows.push({ stt: allRows.length + 1, keyword: '', title: '', domain: '', time_tag: '', main_title: '' });
+      }
       allRows.push({
         stt: allRows.length + 1,
         keyword: '', title: '', domain: '', time_tag: '', main_title: '',
         ...updates,
       });
     }
+    filledCount++;
   });
 
   setGridDataEnsuringEmptyRow(allRows);
   await saveData();
   const startColName = PASTEABLE_COLS[colOffset];
-  toast(`✅ Paste ${parsed.length} dòng (bắt đầu từ cột "${startColName}", dòng ${startAt + 1})`, 'info');
+  toast(`✅ Paste ${filledCount} dòng (bắt đầu từ cột "${startColName}", dòng ${startAt + 1})`, 'info');
 }
 
 // Track grid focus
