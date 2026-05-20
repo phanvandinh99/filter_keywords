@@ -76,9 +76,8 @@ const COL_DEFS = [
     cellRenderer: kwCell,
   },
   {
-    field: 'title', headerName: 'Tiêu Đề', flex: 1, minWidth: 260,
+    field: 'main_title', headerName: 'Tiêu Đề Chính', width: 240,
     editable: true, sortable: true, filter: true,
-    cellRenderer: titleCell,
   },
   {
     field: 'domain', headerName: 'Domain', width: 160,
@@ -90,8 +89,9 @@ const COL_DEFS = [
     cellRenderer: tagCell,
   },
   {
-    field: 'main_title', headerName: 'Tiêu Đề Chính', width: 240,
+    field: 'title', headerName: 'Tiêu Đề', flex: 1, minWidth: 260,
     editable: true, sortable: true, filter: true,
+    cellRenderer: titleCell,
   },
 ];
 
@@ -241,7 +241,7 @@ function autoSave() {
 
 // ── Smart Paste ────────────────────────────────────────────────
 // Thứ tự cột có thể paste (không tính STT)
-const PASTEABLE_COLS = ['keyword', 'title', 'domain', 'time_tag', 'main_title'];
+const PASTEABLE_COLS = ['keyword', 'main_title', 'domain', 'time_tag', 'title'];
 
 /**
  * Paste thông minh:

@@ -767,8 +767,8 @@ def _kill_browser_pid(pid: int) -> None:
         pass
     except Exception:
         pass
-    # Chờ process thoát hẳn (tối đa 8s)
-    deadline = time.time() + 8
+    # Chờ process thoát hẳn (tối đa 10s)
+    deadline = time.time() + 10
     while time.time() < deadline:
         try:
             still_alive = any(
@@ -781,7 +781,47 @@ def _kill_browser_pid(pid: int) -> None:
         except Exception:
             break
         time.sleep(0.5)
-    time.sleep(1.0)  # buffer cho OS giải phóng file handle
+    time.sleep(2.0)  # buffer cho OS giải phóng file handle & profile lock
+
+
+def _kill_all_chrome_on_profile(profile_path: str) -> None:
+    """Kill toàn bộ Chrome process đang sử dụng profile_path (phòng trường hợp PID cũ không được track)."""
+    profile_norm = str(profile_path).replace("\\", "/").lower()
+    killed_pids: list = []
+    try:
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                name = (proc.info["name"] or "").lower()
+                if "chrome" not in name:
+                    continue
+                cmd = " ".join(proc.info["cmdline"] or "").replace("\\", "/").lower()
+                if profile_norm in cmd:
+                    try:
+                        proc.kill()
+                        killed_pids.append(proc.info["pid"])
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+            except Exception:
+                continue
+    except Exception:
+        pass
+    if killed_pids:
+        logger.info(f"[🔒] Đã kill {len(killed_pids)} Chrome process dùng profile cũ: {killed_pids}")
+        # Chờ các process thoát hẳn
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            still_any = False
+            try:
+                for proc in psutil.process_iter(["pid", "name"]):
+                    if proc.info["pid"] in killed_pids:
+                        still_any = True
+                        break
+            except Exception:
+                break
+            if not still_any:
+                break
+            time.sleep(0.5)
+        time.sleep(2.0)  # buffer cho OS giải phóng profile lock
 
 
 def _launch_browser(p, use_temp_profile: bool = False):
@@ -796,6 +836,8 @@ def _launch_browser(p, use_temp_profile: bool = False):
         logger.info(f"💻 Dùng profile tạm: {_temp_dir}")
     else:
         logger.info("💻 Chạy ở chế độ Local (Chrome profile)")
+        # Kill trước mọi Chrome còn sót lại đang giữ profile, rồi mới xóa lock
+        _kill_all_chrome_on_profile(PROFILE_PATH)
         _cleanup_chrome_locks(PROFILE_PATH)
 
     profile_dir = _temp_dir or PROFILE_PATH
@@ -810,21 +852,36 @@ def _launch_browser(p, use_temp_profile: bool = False):
         logger.info(f"   ✅ Persistent context: {'profile tạm' if _temp_dir else 'profile gốc'}")
     except Exception as exc:
         err = str(exc)
+        # exitCode=21 = ERROR_NOT_READY → profile đang bị lock bởi Chrome cũ
         is_lock = any(k in err for k in (
             "ProcessSingleton", "profile is already in use",
-            "Lock file", "TargetClosedError",
+            "Lock file", "TargetClosedError", "exitCode=21",
         ))
         if is_lock and not use_temp_profile:
-            logger.warning("[⚠️] Profile bị lock — fallback sang profile tạm")
-            _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
-            _browser_context = p.chromium.launch_persistent_context(
-                user_data_dir=_temp_dir,
-                headless=False,
-                executable_path=CHROME_PATH,
-                viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
-                user_agent=BROWSER_CONFIG.get("user_agent"),
-            )
-            logger.info(f"   ✅ Dùng profile tạm: {_temp_dir}")
+            logger.warning("[⚠️] Profile bị lock (exitCode=21?) — thử kill Chrome & xóa lock rồi launch lại")
+            _kill_all_chrome_on_profile(PROFILE_PATH)
+            _cleanup_chrome_locks(PROFILE_PATH)
+            try:
+                # Retry lần 2 với profile gốc sau khi đã dọn dẹp
+                _browser_context = p.chromium.launch_persistent_context(
+                    user_data_dir=PROFILE_PATH,
+                    headless=False,
+                    executable_path=CHROME_PATH,
+                    viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
+                    user_agent=BROWSER_CONFIG.get("user_agent"),
+                )
+                logger.info("   ✅ Retry thành công với profile gốc")
+            except Exception as exc2:
+                logger.warning(f"[⚠️] Vẫn lỗi sau retry: {exc2} — fallback sang profile tạm")
+                _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
+                _browser_context = p.chromium.launch_persistent_context(
+                    user_data_dir=_temp_dir,
+                    headless=False,
+                    executable_path=CHROME_PATH,
+                    viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
+                    user_agent=BROWSER_CONFIG.get("user_agent"),
+                )
+                logger.info(f"   ✅ Dùng profile tạm: {_temp_dir}")
         else:
             raise
 
