@@ -152,6 +152,28 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);
 .form-group textarea{resize:vertical;min-height:140px}
 .modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 
+/* ── Wide modal (KW Files) ── */
+.modal-wide{width:720px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column}
+.modal-wide .form-group textarea{
+  min-height:400px;font-family:'Cascadia Code','Fira Code','Consolas',monospace;
+  font-size:12px;line-height:1.5;resize:vertical;tab-size:4}
+.kwf-tabs{display:flex;gap:0;margin-bottom:0;border-bottom:2px solid var(--border)}
+.kwf-tab{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 16px;border:none;background:none;cursor:pointer;
+  font-size:12px;font-weight:600;color:var(--text-muted);
+  border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .2s}
+.kwf-tab:hover{color:var(--text);background:var(--bg3)}
+.kwf-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.kwf-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:24px;padding:1px 6px;border-radius:10px;
+  font-size:10px;font-weight:700;
+  background:var(--bg3);color:var(--text-muted);border:1px solid var(--border);transition:all .2s}
+.kwf-tab.active .kwf-badge{background:var(--accent);color:#fff;border-color:var(--accent)}
+.kwf-panel{display:none;flex:1;overflow:auto;padding-top:12px}
+.kwf-panel.active{display:block}
+
 /* ── Toast ── */
 #toast{position:fixed;bottom:20px;right:20px;background:var(--bg2);border:1px solid var(--border);
   border-radius:8px;padding:10px 16px;font-size:13px;box-shadow:var(--shadow);

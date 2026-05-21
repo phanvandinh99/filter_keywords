@@ -31,6 +31,12 @@ data/keywords.json
 # File log
 log/
 *.log
+# File text chứa từ khóa runtime (không commit)
+input_keywords.txt
+getnewkeywords/input_keywords.txt
+getnewkeywords/keywords_all.txt
+getnewkeywords/keywords_output.txt
+getnewkeywords/old_keywords.txt
 
 # Giữ lại thư mục data rỗng
 !data/.gitkeep

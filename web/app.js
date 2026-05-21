@@ -652,6 +652,73 @@ document.getElementById('btn-seed-save').onclick = async () => {
   toast('Đã lưu từ khóa mới', 'success');
 };
 
+// ── KW Files (keywords_all.txt & keywords_output.txt) ──────────
+function countKwLines(text) {
+  return (text || '').split(/\r?\n/).filter(l => l.trim()).length;
+}
+
+function updateKwfCounts() {
+  document.getElementById('kwf-count-all').textContent =
+    countKwLines(document.getElementById('kwf-all-content').value);
+  document.getElementById('kwf-count-output').textContent =
+    countKwLines(document.getElementById('kwf-output-content').value);
+}
+
+// Tab switching
+document.querySelectorAll('.kwf-tab').forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll('.kwf-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.kwf-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab).classList.add('active');
+  };
+});
+
+// Live count update
+document.getElementById('kwf-all-content').addEventListener('input', updateKwfCounts);
+document.getElementById('kwf-output-content').addEventListener('input', updateKwfCounts);
+
+document.getElementById('btn-edit-kwfiles').onclick = async () => {
+  try {
+    const r = await fetch('/api/getnew-keywords');
+    const d = await r.json();
+    document.getElementById('kwf-all-content').value = d.keywords_all || '';
+    document.getElementById('kwf-output-content').value = d.keywords_output || '';
+    updateKwfCounts();
+    // Reset to first tab
+    document.querySelectorAll('.kwf-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.kwf-panel').forEach(p => p.classList.remove('active'));
+    document.querySelector('.kwf-tab[data-tab="kwf-all"]').classList.add('active');
+    document.getElementById('kwf-all').classList.add('active');
+    document.getElementById('modal-kwfiles').classList.add('open');
+  } catch (e) {
+    toast('Lỗi tải keyword files: ' + e.message, 'error');
+  }
+};
+
+document.getElementById('btn-kwfiles-cancel').onclick = () =>
+  document.getElementById('modal-kwfiles').classList.remove('open');
+
+document.getElementById('btn-kwfiles-save').onclick = async () => {
+  try {
+    const res = await fetch('/api/getnew-keywords', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        keywords_all: document.getElementById('kwf-all-content').value,
+        keywords_output: document.getElementById('kwf-output-content').value,
+      }),
+    });
+    if (res.ok) {
+      document.getElementById('modal-kwfiles').classList.remove('open');
+      toast('Đã lưu keyword files', 'success');
+    } else {
+      toast('Lỗi lưu keyword files', 'error');
+    }
+  } catch (e) {
+    toast('Lỗi: ' + e.message, 'error');
+  }
+};
+
 // Close modals on overlay click
 document.querySelectorAll('.modal-overlay').forEach(el =>
   el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); }));

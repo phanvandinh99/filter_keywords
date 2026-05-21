@@ -232,6 +232,45 @@ def api_ip_info():
             
     return {"ip": "Không thể lấy IP", "country": "Không rõ"}
 
+# ── GetNewKeywords files ───────────────────────────────────────────────────────
+
+GETNEW_DIR = BASE_DIR / "getnewkeywords"
+KEYWORDS_ALL_FILE = GETNEW_DIR / "keywords_all.txt"
+KEYWORDS_OUTPUT_FILE = GETNEW_DIR / "keywords_output.txt"
+
+@app.get("/api/getnew-keywords")
+async def api_get_getnew_keywords():
+    result = {}
+    if KEYWORDS_ALL_FILE.exists():
+        result["keywords_all"] = KEYWORDS_ALL_FILE.read_text(encoding="utf-8")
+    else:
+        result["keywords_all"] = ""
+    if KEYWORDS_OUTPUT_FILE.exists():
+        result["keywords_output"] = KEYWORDS_OUTPUT_FILE.read_text(encoding="utf-8")
+    else:
+        result["keywords_output"] = ""
+    return result
+
+class GetnewKeywordsRequest(BaseModel):
+    keywords_all: Optional[str] = None
+    keywords_output: Optional[str] = None
+
+@app.post("/api/getnew-keywords")
+async def api_save_getnew_keywords(req: GetnewKeywordsRequest):
+    GETNEW_DIR.mkdir(exist_ok=True)
+    saved = []
+    if req.keywords_all is not None:
+        KEYWORDS_ALL_FILE.write_text(req.keywords_all, encoding="utf-8")
+        lines_all = [l for l in req.keywords_all.splitlines() if l.strip()]
+        saved.append(f"keywords_all.txt ({len(lines_all)} dòng)")
+        push_log(f"✅ Đã lưu keywords_all.txt — {len(lines_all)} từ khóa", "success")
+    if req.keywords_output is not None:
+        KEYWORDS_OUTPUT_FILE.write_text(req.keywords_output, encoding="utf-8")
+        lines_out = [l for l in req.keywords_output.splitlines() if l.strip()]
+        saved.append(f"keywords_output.txt ({len(lines_out)} dòng)")
+        push_log(f"✅ Đã lưu keywords_output.txt — {len(lines_out)} từ khóa", "success")
+    return {"ok": True, "saved": saved}
+
 # ── Settings ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/settings")
