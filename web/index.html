@@ -34,7 +34,7 @@
   <button class="btn success" id="btn-export" title="Xuất kết quả ra file Excel (.xlsx)">📤 Export</button>
   <button class="btn" id="btn-edit-banned" title="Mở danh sách từ cấm để chỉnh sửa">✏️ Từ cấm</button>
   <button class="btn" id="btn-edit-seed" title="Mở danh sách từ khóa mới (seed keywords) để lấy gợi ý từ Baidu">✏️ Từ khóa mới</button>
-  <button class="btn" id="btn-edit-kwfiles" title="Chỉnh sửa keywords_all.txt và keywords_output.txt">📝 KW Files</button>
+  <button class="btn" id="btn-edit-kwfiles" title="Chỉnh sửa keywords.txt và priority_titles.txt">📝 KW Files</button>
   <button class="btn" id="btn-settings" title="Cài đặt đường dẫn Chrome và Profile">⚙️ Cài đặt</button>
   <div class="sep"></div>
   <button class="btn" id="btn-save" title="Lưu toàn bộ dữ liệu hiện tại">💾 Lưu</button>
@@ -129,25 +129,18 @@
   <div class="modal modal-wide">
     <h2>📝 Chỉnh sửa Keyword Files</h2>
     <div class="kwf-tabs">
-      <button class="kwf-tab active" data-tab="kwf-all">📄 keywords_all.txt <span class="kwf-badge" id="kwf-count-all">0</span></button>
-      <button class="kwf-tab" data-tab="kwf-output">📄 keywords_output.txt <span class="kwf-badge" id="kwf-count-output">0</span></button>
+      <button class="kwf-tab active" data-tab="kwf-all">📄 keywords.txt <span class="kwf-badge" id="kwf-count-all">0</span></button>
       <button class="kwf-tab" data-tab="kwf-priority">🎯 priority_titles.txt <span class="kwf-badge" id="kwf-count-priority">0</span></button>
     </div>
     <div class="kwf-panel active" id="kwf-all">
       <div class="form-group">
-        <label>Những từ khóa cũ, sẽ không lấy lại trùng lặp nữa</label>
+        <label>Danh sách từ khóa đã tồn tại, tránh trùng lặp (Chỉ áp dụng cho baidu)</label>
         <textarea id="kwf-all-content" rows="20" spellcheck="false" placeholder="Nhập từ khóa, mỗi dòng một từ khóa..."></textarea>
-      </div>
-    </div>
-    <div class="kwf-panel" id="kwf-output">
-      <div class="form-group">
-        <label>Mỗi từ khóa bạn đã tìm kiếm trước đó sẽ không lặp lại nữa</label>
-        <textarea id="kwf-output-content" rows="20" spellcheck="false" placeholder="Nhập từ khóa, mỗi dòng một từ khóa..."></textarea>
       </div>
     </div>
     <div class="kwf-panel" id="kwf-priority">
       <div class="form-group">
-        <label>Lấy title theo điều kiện (Ký tự * ở 1 dòng nghĩa là lấy hết)</label>
+        <label>Lấy từ khóa mới điều kiện (Ký tự * ở 1 dòng nghĩa là lấy hết)</label>
         <textarea id="kwf-priority-content" rows="20" spellcheck="false" placeholder="Nhập từ khóa ưu tiên trong tiêu đề, mỗi dòng một từ..."></textarea>
       </div>
     </div>
@@ -159,6 +152,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=6"></script>
+<script src="/static/app.js?v=7"></script>
 </body>
 </html>

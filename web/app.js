@@ -652,7 +652,7 @@ document.getElementById('btn-seed-save').onclick = async () => {
   toast('Đã lưu từ khóa mới', 'success');
 };
 
-// ── KW Files (keywords_all.txt, keywords_output.txt & priority_titles.txt) ──────────
+// ── KW Files (keywords.txt & priority_titles.txt) ──────────
 function countKwLines(text) {
   return (text || '').split(/\r?\n/).filter(l => l.trim()).length;
 }
@@ -660,8 +660,6 @@ function countKwLines(text) {
 function updateKwfCounts() {
   document.getElementById('kwf-count-all').textContent =
     countKwLines(document.getElementById('kwf-all-content').value);
-  document.getElementById('kwf-count-output').textContent =
-    countKwLines(document.getElementById('kwf-output-content').value);
   document.getElementById('kwf-count-priority').textContent =
     countKwLines(document.getElementById('kwf-priority-content').value);
 }
@@ -678,15 +676,13 @@ document.querySelectorAll('.kwf-tab').forEach(tab => {
 
 // Live count update
 document.getElementById('kwf-all-content').addEventListener('input', updateKwfCounts);
-document.getElementById('kwf-output-content').addEventListener('input', updateKwfCounts);
 document.getElementById('kwf-priority-content').addEventListener('input', updateKwfCounts);
 
 document.getElementById('btn-edit-kwfiles').onclick = async () => {
   try {
     const r = await fetch('/api/getnew-keywords');
     const d = await r.json();
-    document.getElementById('kwf-all-content').value = d.keywords_all || '';
-    document.getElementById('kwf-output-content').value = d.keywords_output || '';
+    document.getElementById('kwf-all-content').value = d.keywords || '';
     document.getElementById('kwf-priority-content').value = d.priority_titles || '';
     updateKwfCounts();
     // Reset to first tab
@@ -708,8 +704,7 @@ document.getElementById('btn-kwfiles-save').onclick = async () => {
     const res = await fetch('/api/getnew-keywords', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        keywords_all: document.getElementById('kwf-all-content').value,
-        keywords_output: document.getElementById('kwf-output-content').value,
+        keywords: document.getElementById('kwf-all-content').value,
         priority_titles: document.getElementById('kwf-priority-content').value,
       }),
     });

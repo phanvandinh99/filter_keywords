@@ -153,11 +153,18 @@ BLOCKED_SOURCES = [
     "GitHub",
 ]
 
-# ── Domain bị loại bỏ ────────────────────────────────────────────────────────
-# Kết quả có domain khớp bất kỳ suffix nào dưới đây sẽ bị bỏ qua.
-# Ví dụ: "baidu.com" sẽ match m.baidu.com, www.baidu.com, tieba.baidu.com, ...
+# ── Domain bị loại bỏ ──────────────────────────────────────────────────────────────────
+# Kết quả có domain thuộc danh sách này sẽ bị bỏ qua hoàn toàn (không giữ title, không lấy domain).
+# Chỉ liệt kê các trang điều hướng/nội bộ của Baidu mà không phải content website.
+# Lưu ý: Đây là exact-domain match, KHÔNG phải suffix match nữa.
 BLOCKED_DOMAINS = [
-    "baidu.com",    # Tất cả subdomain của Baidu (m.baidu.com, tieba.baidu.com, ...)
+    # Trang chủ và tìm kiếm Baidu — không phải content website
+    "www.baidu.com",
+    "m.baidu.com",
+    "baidu.com",
+    # Nếu muốn block thêm các subdomain khác, thêm vào đây:
+    # "tieba.baidu.com",
+    # "zhidao.baidu.com",
 ]
 
 # Debug settings

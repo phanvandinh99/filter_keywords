@@ -126,16 +126,151 @@ def _title_match_info(keyword: str, title: str) -> Tuple[bool, bool, int, int]:
 
 
 def _extract_domain(container: Any) -> str:
-    """Trích xuất domain từ data-log attribute"""
+    """Trích xuất domain từ container với nhiều cơ chế fallback,
+    ưu tiên JavaScript evaluation để đọc trực tiếp từ DOM trình duyệt."""
+    import re
+
+    def _parse_url_to_domain(url: str) -> str:
+        """Lấy netloc từ URL, trả về chuỗi rỗng nếu là baidu.com."""
+        if not url:
+            return ""
+        try:
+            parsed = urlparse(url if url.startswith("http") else "http://" + url)
+            netloc = parsed.netloc or ""
+            if netloc and not _is_blocked_domain(netloc):
+                return netloc
+        except Exception:
+            pass
+        return ""
+
+    def _clean_visual_domain(text: str) -> str:
+        """Làm sạch chuỗi hiển thị domain từ element trực quan."""
+        if not text:
+            return ""
+        text = re.sub(r'^https?://', '', text, flags=re.IGNORECASE).strip()
+        # Lấy phần trước khoảng trắng / dấu / / ký tự phân cách
+        parts = re.split(r'[\s/\\›>|；;—]', text)
+        candidate = parts[0].strip().lower()
+        candidate = re.sub(r'[^\w.\-]', '', candidate)
+        # Phải có ít nhất 1 dấu chấm và kết thúc bằng TLD 2-63 ký tự
+        if re.match(r'^[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.(?:[a-z0-9\-]{1,62}\.)*[a-z]{2,63}$', candidate):
+            return candidate
+        return ""
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phương án 1: Đọc data-log.mu bằng Python (phương án cơ bản)
+    # ──────────────────────────────────────────────────────────────────────────
     try:
         data_log = container.get_attribute("data-log")
         if data_log:
             info = json.loads(data_log)
-            mu = info.get("mu") or ""
-            if mu:
-                return urlparse(mu).netloc
+            # Thử nhiều trường có thể chứa URL đích
+            for field in ("mu", "url", "pu", "di"):
+                raw = info.get(field) or ""
+                if raw:
+                    domain = _parse_url_to_domain(raw)
+                    if domain:
+                        return domain
     except Exception:
         pass
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phương án 2: JavaScript evaluation - đọc data-log từ DOM thực tế
+    # (đảm bảo lấy đúng giá trị ngay cả khi Playwright cache attribute cũ)
+    # ──────────────────────────────────────────────────────────────────────────
+    try:
+        js_result = container.evaluate("""
+            el => {
+                // Thử data-log.mu trực tiếp
+                const raw = el.getAttribute('data-log');
+                if (raw) {
+                    try {
+                        const obj = JSON.parse(raw);
+                        for (const f of ['mu', 'url', 'pu', 'di']) {
+                            if (obj[f]) return obj[f];
+                        }
+                    } catch(e) {}
+                }
+                // Thử các data attribute khác trên container
+                for (const attr of ['data-mu', 'data-shareurl', 'data-url', 'data-sf-href']) {
+                    const v = el.getAttribute(attr);
+                    if (v && v.startsWith('http')) return v;
+                }
+                // Tìm element hiển thị URL trực quan
+                const urlSelectors = [
+                    '.c-showurl', 'span.c-showurl',
+                    '.cosc-source-text', 'span.cosc-source-text',
+                    '.c-source', '.c-source-text',
+                    '.cosc-source', '.c-showurl-source',
+                    '[class*="showurl"]', '[class*="source"]'
+                ];
+                for (const sel of urlSelectors) {
+                    const elem = el.querySelector(sel);
+                    if (elem) {
+                        const t = (elem.textContent || '').trim();
+                        if (t) return '##VISUAL##' + t;
+                    }
+                }
+                // Tìm trong các thẻ a - lấy data-log.mu từ thẻ a nếu có
+                for (const a of el.querySelectorAll('a')) {
+                    const aLog = a.getAttribute('data-log');
+                    if (aLog) {
+                        try {
+                            const obj = JSON.parse(aLog);
+                            for (const f of ['mu', 'url', 'pu']) {
+                                if (obj[f]) return obj[f];
+                            }
+                        } catch(e) {}
+                    }
+                }
+                return '';
+            }
+        """)
+        if js_result:
+            if js_result.startswith("##VISUAL##"):
+                domain = _clean_visual_domain(js_result[10:])
+                if domain:
+                    return domain
+            else:
+                domain = _parse_url_to_domain(js_result)
+                if domain:
+                    return domain
+    except Exception:
+        pass
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phương án 3: Quét tất cả attribute trên container và thẻ a con
+    # ──────────────────────────────────────────────────────────────────────────
+    for attr in ("data-mu", "mu", "data-shareurl", "data-url", "data-sf-href"):
+        try:
+            val = container.get_attribute(attr)
+            if val:
+                domain = _parse_url_to_domain(val)
+                if domain:
+                    return domain
+        except Exception:
+            pass
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phương án 4: Element hiển thị URL trực quan (fallback Python)
+    # ──────────────────────────────────────────────────────────────────────────
+    for selector in (
+        ".c-showurl", "span.c-showurl",
+        ".cosc-source-text", "span.cosc-source-text",
+        ".c-source", ".c-source-text",
+        ".cosc-source", ".c-showurl-source",
+        "[class*='showurl']", "[class*='source']",
+    ):
+        try:
+            for elem in container.query_selector_all(selector):
+                txt = (elem.text_content() or "").strip()
+                if txt:
+                    domain = _clean_visual_domain(txt)
+                    if domain:
+                        return domain
+        except Exception:
+            pass
+
     return ""
 
 
@@ -207,14 +342,15 @@ def _is_blocked_source(container: Any) -> bool:
 
 def _is_blocked_domain(domain: str) -> bool:
     """Kiểm tra domain có nằm trong danh sách bị chặn không.
-    Ví dụ: 'baidu.com' sẽ match m.baidu.com, tieba.baidu.com, www.baidu.com, ...
+    Dùng exact-domain match: chỉ block chính xác domain được liệt kê.
+    Lưu ý: không còn dùng suffix match nữa (để không block nhầm haokan.baidu.com etc.)
     """
     if not domain:
         return False
     domain_lower = domain.lower().rstrip(".")
     for blocked in BLOCKED_DOMAINS:
         blocked_lower = blocked.lower()
-        if domain_lower == blocked_lower or domain_lower.endswith("." + blocked_lower):
+        if domain_lower == blocked_lower:
             return True
     return False
 
@@ -472,10 +608,10 @@ def _extract_search_results(page: Page, keyword: str) -> List[Dict[str, Any]]:
         domain = _extract_domain(container)
         time_tag = _extract_time_tag(container)
 
-        # Bỏ qua kết quả từ domain bị chặn (*.baidu.com, ...)
+        # Nếu domain bị block (tịp trang search/home Baidu): giữ title nhưng để domain rỗng
         if _is_blocked_domain(domain):
-            logger.debug(f"[⛔] Bỏ qua domain bị chặn: {domain} | {title[:40]}")
-            continue
+            logger.debug(f"[⛔] Domain bị chặn → để trống: {domain} | {title[:40]}")
+            domain = ""
 
         matched, startswith_kw, kw_pos, len_gap = _title_match_info(keyword, title)
         if matched:
