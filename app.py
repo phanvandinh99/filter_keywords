@@ -237,6 +237,62 @@ def api_ip_info():
 GETNEW_DIR = BASE_DIR / "getnewkeywords"
 KEYWORDS_ALL_FILE = GETNEW_DIR / "keywords_all.txt"
 KEYWORDS_OUTPUT_FILE = GETNEW_DIR / "keywords_output.txt"
+KEYWORDS_PRIORITY_FILE = GETNEW_DIR / "priority_titles.txt"
+
+def load_priority_list() -> List[str]:
+    if not KEYWORDS_PRIORITY_FILE.exists():
+        default_list = [
+            "*",
+            "安卓版-2265安卓网",
+            "2265安卓网",
+            "2265",
+            "安卓版",
+            "手机版",
+            "网页版",
+            "iOS版",
+            "下载",
+            "下载安装",
+            "免费下载",
+            "官方版下载",
+            "登录",
+            "入口",
+            "网页入口",
+            "官网入口",
+            "链接",
+            "试玩",
+            "在线试玩",
+            "观看",
+            "直播",
+            "免费领取",
+            "怎么下载",
+            "在哪买",
+            "获取",
+            "获取步骤",
+            "官方",
+            "官方版",
+            "官网",
+            "正版",
+            "纯净版",
+            "绿色版",
+            "免费",
+            "免费版",
+            "无插件",
+            "无限金币",
+            "最新",
+            "最新版",
+            "2024最新",
+            "2025最新版",
+            "2026最新版",
+            "V",
+            "v",
+            "V.",
+            "v."
+        ]
+        GETNEW_DIR.mkdir(exist_ok=True)
+        KEYWORDS_PRIORITY_FILE.write_text("\n".join(default_list), encoding="utf-8")
+        return default_list
+    content = KEYWORDS_PRIORITY_FILE.read_text(encoding="utf-8")
+    return [line.strip() for line in content.splitlines() if line.strip()]
 
 @app.get("/api/getnew-keywords")
 async def api_get_getnew_keywords():
@@ -249,11 +305,16 @@ async def api_get_getnew_keywords():
         result["keywords_output"] = KEYWORDS_OUTPUT_FILE.read_text(encoding="utf-8")
     else:
         result["keywords_output"] = ""
+    
+    # Đọc thêm file priority_titles.txt (nếu chưa có sẽ tự động khởi tạo)
+    load_priority_list()
+    result["priority_titles"] = KEYWORDS_PRIORITY_FILE.read_text(encoding="utf-8")
     return result
 
 class GetnewKeywordsRequest(BaseModel):
     keywords_all: Optional[str] = None
     keywords_output: Optional[str] = None
+    priority_titles: Optional[str] = None
 
 @app.post("/api/getnew-keywords")
 async def api_save_getnew_keywords(req: GetnewKeywordsRequest):
@@ -269,6 +330,11 @@ async def api_save_getnew_keywords(req: GetnewKeywordsRequest):
         lines_out = [l for l in req.keywords_output.splitlines() if l.strip()]
         saved.append(f"keywords_output.txt ({len(lines_out)} dòng)")
         push_log(f"✅ Đã lưu keywords_output.txt — {len(lines_out)} từ khóa", "success")
+    if req.priority_titles is not None:
+        KEYWORDS_PRIORITY_FILE.write_text(req.priority_titles, encoding="utf-8")
+        lines_prio = [l for l in req.priority_titles.splitlines() if l.strip()]
+        saved.append(f"priority_titles.txt ({len(lines_prio)} điều kiện lọc)")
+        push_log(f"✅ Đã lưu priority_titles.txt — {len(lines_prio)} điều kiện lọc", "success")
     return {"ok": True, "saved": saved}
 
 # ── Settings ───────────────────────────────────────────────────────────────────
@@ -435,13 +501,68 @@ def _run_auto_baidu(headless: bool = False) -> None:
         from search_keywords import search_keywords as _fn
         _fn(keywords_list, on_progress=on_progress, on_result=on_result, stop_event=_stop_event,
             headless=headless, location="default")
-            
         write_data({"rows": new_rows})
-        
-        success = sum(1 for r in new_rows if r.get("title") and not str(r.get("title", "")).startswith("Lỗi") and r.get("title") != "Trùng lặp từ khóa")
-        errors = sum(1 for r in new_rows if str(r.get("title", "")).startswith("Lỗi"))
-        dupes = sum(1 for r in new_rows if r.get("title") == "Trùng lặp từ khóa")
-        push_done(success, errors, dupes, len(keywords_list))
+
+        # Lọc danh sách kết quả theo độ ưu tiên của title
+        push_log("🎯 Đang lọc từ khóa dựa trên danh sách tiêu đề ưu tiên...", "info")
+        priority_list = load_priority_list()
+        has_wildcard = "*" in priority_list
+
+        filtered_rows = []
+        if has_wildcard:
+            filtered_rows = new_rows
+            push_log("ℹ️ Phát hiện ký tự '*' trong danh sách ưu tiên, giữ lại toàn bộ từ khóa.", "info")
+        else:
+            for row in new_rows:
+                title = row.get("title", "")
+                kw = row.get("keyword", "")
+
+                # Giữ lại nếu là Lỗi hoặc Trùng lặp để người dùng theo dõi trạng thái lỗi/trùng
+                if title == "Trùng lặp từ khóa" or title.startswith("Lỗi"):
+                    filtered_rows.append(row)
+                    continue
+
+                # Kiểm tra title có chứa bất kỳ từ khóa ưu tiên nào không
+                match = False
+                for p_word in priority_list:
+                    if p_word and p_word in title:
+                        match = True
+                        break
+
+                if match:
+                    filtered_rows.append(row)
+                else:
+                    push_log(f"🗑️ Loại bỏ '{kw}' do tiêu đề '{title}' không chứa từ khóa ưu tiên.", "warning")
+
+        # Cập nhật lại số thứ tự
+        for idx, r in enumerate(filtered_rows, 1):
+            r["stt"] = idx
+
+        write_data({"rows": filtered_rows})
+
+        try:
+            from utils import write_keywords_to_excel
+            write_keywords_to_excel([r["keyword"] for r in filtered_rows if r.get("title") and not r.get("title", "").startswith("Lỗi") and r.get("title") != "Trùng lặp từ khóa"])
+        except Exception as ex:
+            push_log(f"⚠️ Không thể lưu đồng bộ vào Excel: {ex}", "warning")
+
+        # Cập nhật lại file keywords_output.txt để đồng bộ
+        try:
+            with open(KEYWORDS_OUTPUT_FILE, 'w', encoding='utf-8') as f:
+                for r in filtered_rows:
+                    if r.get("title") and not r.get("title", "").startswith("Lỗi") and r.get("title") != "Trùng lặp từ khóa":
+                        f.write(r["keyword"] + "\n")
+            push_log(f"💾 Đã cập nhật lại file keywords_output.txt với các từ khóa phù hợp.", "success")
+        except Exception as ex:
+            push_log(f"⚠️ Không thể cập nhật keywords_output.txt: {ex}", "warning")
+
+        # Refresh UI
+        push({"type": "refresh_data", "rows": filtered_rows})
+
+        success = sum(1 for r in filtered_rows if r.get("title") and not str(r.get("title", "")).startswith("Lỗi") and r.get("title") != "Trùng lặp từ khóa")
+        errors = sum(1 for r in filtered_rows if str(r.get("title", "")).startswith("Lỗi"))
+        dupes = sum(1 for r in filtered_rows if r.get("title") == "Trùng lặp từ khóa")
+        push_done(success, errors, dupes, len(filtered_rows))
         done_pushed = True
 
     except Exception as e:

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Keyword Tool</title>
-<link rel="stylesheet" href="/static/style.css?v=6">
+<link rel="stylesheet" href="/static/style.css?v=7">
 <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.2/dist/ag-grid-community.min.js"></script>
 </head>
 <body>
@@ -131,6 +131,7 @@
     <div class="kwf-tabs">
       <button class="kwf-tab active" data-tab="kwf-all">📄 keywords_all.txt <span class="kwf-badge" id="kwf-count-all">0</span></button>
       <button class="kwf-tab" data-tab="kwf-output">📄 keywords_output.txt <span class="kwf-badge" id="kwf-count-output">0</span></button>
+      <button class="kwf-tab" data-tab="kwf-priority">🎯 priority_titles.txt <span class="kwf-badge" id="kwf-count-priority">0</span></button>
     </div>
     <div class="kwf-panel active" id="kwf-all">
       <div class="form-group">
@@ -144,6 +145,12 @@
         <textarea id="kwf-output-content" rows="20" spellcheck="false" placeholder="Nhập từ khóa, mỗi dòng một từ khóa..."></textarea>
       </div>
     </div>
+    <div class="kwf-panel" id="kwf-priority">
+      <div class="form-group">
+        <label>Lấy title theo điều kiện (Ký tự * ở 1 dòng nghĩa là lấy hết)</label>
+        <textarea id="kwf-priority-content" rows="20" spellcheck="false" placeholder="Nhập từ khóa ưu tiên trong tiêu đề, mỗi dòng một từ..."></textarea>
+      </div>
+    </div>
     <div class="modal-footer">
       <button class="btn" id="btn-kwfiles-cancel">Hủy</button>
       <button class="btn primary" id="btn-kwfiles-save">💾 Lưu tất cả</button>
@@ -152,6 +159,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=6"></script>
 </body>
 </html>
