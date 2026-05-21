@@ -908,22 +908,49 @@ def _launch_browser(p, use_temp_profile: bool = False):
 
 
 def _close_browser(browser, browser_context, browser_pid, temp_dir=None) -> None:
-    """Đóng browser hoàn toàn và xóa profile tạm nếu có."""
-    if browser_pid:
+    """Đóng browser hoàn toàn và xóa profile tạm nếu có.
+
+    Gọi browser_context.close() trực tiếp trên thread hiện tại (bắt buộc bởi
+    Playwright greenlet). Dùng watchdog thread để force kill nếu close() bị treo.
+    """
+    logger.info(f"[DEBUG] _close_browser: context={browser_context is not None}, "
+                f"pid={browser_pid}, temp={temp_dir}")
+
+    graceful_ok = False
+
+    # Watchdog: nếu close() treo quá 15s → force kill
+    watchdog_fired = threading.Event()
+    def _watchdog():
+        if not watchdog_fired.wait(timeout=15):
+            logger.warning("[⚠️] close() treo quá 15s → force kill Chrome")
+            if browser_pid:
+                _kill_browser_pid(browser_pid)
+
+    if browser_context is not None:
+        # Khởi động watchdog trước khi gọi close
+        wd = threading.Thread(target=_watchdog, daemon=True)
+        wd.start()
+
+        try:
+            browser_context.close()
+            graceful_ok = True
+            logger.info("[✅] Browser context đã đóng sạch")
+        except Exception as e:
+            logger.warning(f"[⚠️] browser_context.close() lỗi: {e}")
+        finally:
+            watchdog_fired.set()  # Hủy watchdog
+
+    if browser is not None:
+        try:
+            browser.close()
+        except Exception:
+            pass
+
+    # Force kill chỉ khi graceful close thất bại
+    if not graceful_ok and browser_pid:
+        logger.info(f"[🔒] Force kill Chrome PID {browser_pid}")
         _kill_browser_pid(browser_pid)
-    else:
-        if browser_context is not None:
-            done = threading.Event()
-            def _do_close():
-                try: browser_context.close()
-                except Exception: pass
-                finally: done.set()
-            t = threading.Thread(target=_do_close, daemon=True)
-            t.start()
-            t.join(timeout=10)
-        if browser is not None:
-            try: browser.close()
-            except Exception: pass
+
     if temp_dir:
         try:
             shutil.rmtree(temp_dir, ignore_errors=True)
