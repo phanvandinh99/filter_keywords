@@ -28,6 +28,7 @@ from constants import (
     MID_PATTERNS,
     BROWSER_CONFIG,
     TIMEOUTS,
+    LOCATION_PROFILES,
     DELAYS,
     SELECTORS,
     URLS,
@@ -39,6 +40,9 @@ from constants import (
     CAPTCHA_URL_PATTERNS,
     CAPTCHA_PAGE_TITLES,
     BLOCKED_DOMAINS,
+    NO_RESULT_MAX_RETRIES,
+    NO_RESULT_RETRY_DELAY_MIN,
+    NO_RESULT_RETRY_DELAY_MAX,
 )
 
 logger = logging.getLogger()
@@ -122,16 +126,151 @@ def _title_match_info(keyword: str, title: str) -> Tuple[bool, bool, int, int]:
 
 
 def _extract_domain(container: Any) -> str:
-    """Trích xuất domain từ data-log attribute"""
+    """Trích xuất domain từ container với nhiều cơ chế fallback,
+    ưu tiên JavaScript evaluation để đọc trực tiếp từ DOM trình duyệt."""
+    import re
+
+    def _parse_url_to_domain(url: str) -> str:
+        """Lấy netloc từ URL, trả về chuỗi rỗng nếu là baidu.com."""
+        if not url:
+            return ""
+        try:
+            parsed = urlparse(url if url.startswith("http") else "http://" + url)
+            netloc = parsed.netloc or ""
+            if netloc and not _is_blocked_domain(netloc):
+                return netloc
+        except Exception:
+            pass
+        return ""
+
+    def _clean_visual_domain(text: str) -> str:
+        """Làm sạch chuỗi hiển thị domain từ element trực quan."""
+        if not text:
+            return ""
+        text = re.sub(r'^https?://', '', text, flags=re.IGNORECASE).strip()
+        # Lấy phần trước khoảng trắng / dấu / / ký tự phân cách
+        parts = re.split(r'[\s/\\›>|；;—]', text)
+        candidate = parts[0].strip().lower()
+        candidate = re.sub(r'[^\w.\-]', '', candidate)
+        # Phải có ít nhất 1 dấu chấm và kết thúc bằng TLD 2-63 ký tự
+        if re.match(r'^[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.(?:[a-z0-9\-]{1,62}\.)*[a-z]{2,63}$', candidate):
+            return candidate
+        return ""
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phương án 1: Đọc data-log.mu bằng Python (phương án cơ bản)
+    # ──────────────────────────────────────────────────────────────────────────
     try:
         data_log = container.get_attribute("data-log")
         if data_log:
             info = json.loads(data_log)
-            mu = info.get("mu") or ""
-            if mu:
-                return urlparse(mu).netloc
+            # Thử nhiều trường có thể chứa URL đích
+            for field in ("mu", "url", "pu", "di"):
+                raw = info.get(field) or ""
+                if raw:
+                    domain = _parse_url_to_domain(raw)
+                    if domain:
+                        return domain
     except Exception:
         pass
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phương án 2: JavaScript evaluation - đọc data-log từ DOM thực tế
+    # (đảm bảo lấy đúng giá trị ngay cả khi Playwright cache attribute cũ)
+    # ──────────────────────────────────────────────────────────────────────────
+    try:
+        js_result = container.evaluate("""
+            el => {
+                // Thử data-log.mu trực tiếp
+                const raw = el.getAttribute('data-log');
+                if (raw) {
+                    try {
+                        const obj = JSON.parse(raw);
+                        for (const f of ['mu', 'url', 'pu', 'di']) {
+                            if (obj[f]) return obj[f];
+                        }
+                    } catch(e) {}
+                }
+                // Thử các data attribute khác trên container
+                for (const attr of ['data-mu', 'data-shareurl', 'data-url', 'data-sf-href']) {
+                    const v = el.getAttribute(attr);
+                    if (v && v.startsWith('http')) return v;
+                }
+                // Tìm element hiển thị URL trực quan
+                const urlSelectors = [
+                    '.c-showurl', 'span.c-showurl',
+                    '.cosc-source-text', 'span.cosc-source-text',
+                    '.c-source', '.c-source-text',
+                    '.cosc-source', '.c-showurl-source',
+                    '[class*="showurl"]', '[class*="source"]'
+                ];
+                for (const sel of urlSelectors) {
+                    const elem = el.querySelector(sel);
+                    if (elem) {
+                        const t = (elem.textContent || '').trim();
+                        if (t) return '##VISUAL##' + t;
+                    }
+                }
+                // Tìm trong các thẻ a - lấy data-log.mu từ thẻ a nếu có
+                for (const a of el.querySelectorAll('a')) {
+                    const aLog = a.getAttribute('data-log');
+                    if (aLog) {
+                        try {
+                            const obj = JSON.parse(aLog);
+                            for (const f of ['mu', 'url', 'pu']) {
+                                if (obj[f]) return obj[f];
+                            }
+                        } catch(e) {}
+                    }
+                }
+                return '';
+            }
+        """)
+        if js_result:
+            if js_result.startswith("##VISUAL##"):
+                domain = _clean_visual_domain(js_result[10:])
+                if domain:
+                    return domain
+            else:
+                domain = _parse_url_to_domain(js_result)
+                if domain:
+                    return domain
+    except Exception:
+        pass
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phương án 3: Quét tất cả attribute trên container và thẻ a con
+    # ──────────────────────────────────────────────────────────────────────────
+    for attr in ("data-mu", "mu", "data-shareurl", "data-url", "data-sf-href"):
+        try:
+            val = container.get_attribute(attr)
+            if val:
+                domain = _parse_url_to_domain(val)
+                if domain:
+                    return domain
+        except Exception:
+            pass
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phương án 4: Element hiển thị URL trực quan (fallback Python)
+    # ──────────────────────────────────────────────────────────────────────────
+    for selector in (
+        ".c-showurl", "span.c-showurl",
+        ".cosc-source-text", "span.cosc-source-text",
+        ".c-source", ".c-source-text",
+        ".cosc-source", ".c-showurl-source",
+        "[class*='showurl']", "[class*='source']",
+    ):
+        try:
+            for elem in container.query_selector_all(selector):
+                txt = (elem.text_content() or "").strip()
+                if txt:
+                    domain = _clean_visual_domain(txt)
+                    if domain:
+                        return domain
+        except Exception:
+            pass
+
     return ""
 
 
@@ -203,15 +342,25 @@ def _is_blocked_source(container: Any) -> bool:
 
 def _is_blocked_domain(domain: str) -> bool:
     """Kiểm tra domain có nằm trong danh sách bị chặn không.
-    Ví dụ: 'baidu.com' sẽ match m.baidu.com, tieba.baidu.com, www.baidu.com, ...
+    Hỗ trợ 2 loại match:
+      - Exact match: entry không có dấu '.' ở đầu → chỉ block chính xác domain đó.
+      - Suffix match: entry có dấu '.' ở đầu (vd: ".baidu.com") → block tất cả
+        subdomain của domain đó (vd: baijiahao.baidu.com, tieba.baidu.com...).
     """
     if not domain:
         return False
     domain_lower = domain.lower().rstrip(".")
     for blocked in BLOCKED_DOMAINS:
         blocked_lower = blocked.lower()
-        if domain_lower == blocked_lower or domain_lower.endswith("." + blocked_lower):
-            return True
+        if blocked_lower.startswith("."):
+            # Suffix match: domain kết thúc bằng suffix đó
+            suffix = blocked_lower  # vd: ".baidu.com"
+            if domain_lower == suffix[1:] or domain_lower.endswith(suffix):
+                return True
+        else:
+            # Exact match
+            if domain_lower == blocked_lower:
+                return True
     return False
 
 
@@ -468,10 +617,10 @@ def _extract_search_results(page: Page, keyword: str) -> List[Dict[str, Any]]:
         domain = _extract_domain(container)
         time_tag = _extract_time_tag(container)
 
-        # Bỏ qua kết quả từ domain bị chặn (*.baidu.com, ...)
+        # Nếu domain bị block (tịp trang search/home Baidu): giữ title nhưng để domain rỗng
         if _is_blocked_domain(domain):
-            logger.debug(f"[⛔] Bỏ qua domain bị chặn: {domain} | {title[:40]}")
-            continue
+            logger.debug(f"[⛔] Domain bị chặn → để trống: {domain} | {title[:40]}")
+            domain = ""
 
         matched, startswith_kw, kw_pos, len_gap = _title_match_info(keyword, title)
         if matched:
@@ -767,8 +916,8 @@ def _kill_browser_pid(pid: int) -> None:
         pass
     except Exception:
         pass
-    # Chờ process thoát hẳn (tối đa 8s)
-    deadline = time.time() + 8
+    # Chờ process thoát hẳn (tối đa 10s)
+    deadline = time.time() + 10
     while time.time() < deadline:
         try:
             still_alive = any(
@@ -781,50 +930,125 @@ def _kill_browser_pid(pid: int) -> None:
         except Exception:
             break
         time.sleep(0.5)
-    time.sleep(1.0)  # buffer cho OS giải phóng file handle
+    time.sleep(2.0)  # buffer cho OS giải phóng file handle & profile lock
 
 
-def _launch_browser(p, use_temp_profile: bool = False):
+def _kill_all_chrome_on_profile(profile_path: str) -> None:
+    """Kill toàn bộ Chrome process đang sử dụng profile_path (phòng trường hợp PID cũ không được track)."""
+    profile_norm = str(profile_path).replace("\\", "/").lower()
+    killed_pids: list = []
+    try:
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                name = (proc.info["name"] or "").lower()
+                if "chrome" not in name:
+                    continue
+                cmd = " ".join(proc.info["cmdline"] or "").replace("\\", "/").lower()
+                if profile_norm in cmd:
+                    try:
+                        proc.kill()
+                        killed_pids.append(proc.info["pid"])
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+            except Exception:
+                continue
+    except Exception:
+        pass
+    if killed_pids:
+        logger.info(f"[🔒] Đã kill {len(killed_pids)} Chrome process dùng profile cũ: {killed_pids}")
+        # Chờ các process thoát hẳn
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            still_any = False
+            try:
+                for proc in psutil.process_iter(["pid", "name"]):
+                    if proc.info["pid"] in killed_pids:
+                        still_any = True
+                        break
+            except Exception:
+                break
+            if not still_any:
+                break
+            time.sleep(0.5)
+        time.sleep(2.0)  # buffer cho OS giải phóng profile lock
+
+
+def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, location: str = "default"):
     """Launch browser, trả về (browser, browser_context, browser_pid, temp_dir)."""
     _browser = None
     _browser_context = None
     _browser_pid = None
     _temp_dir = None
 
+    loc_prof = LOCATION_PROFILES.get(location, LOCATION_PROFILES["default"])
+    locale = loc_prof.get("locale")
+    timezone_id = loc_prof.get("timezone_id")
+    geolocation = loc_prof.get("geolocation")
+    permissions = ["geolocation"] if geolocation else None
+
     if use_temp_profile:
         _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
         logger.info(f"💻 Dùng profile tạm: {_temp_dir}")
     else:
         logger.info("💻 Chạy ở chế độ Local (Chrome profile)")
+        # Kill trước mọi Chrome còn sót lại đang giữ profile, rồi mới xóa lock
+        _kill_all_chrome_on_profile(PROFILE_PATH)
         _cleanup_chrome_locks(PROFILE_PATH)
 
     profile_dir = _temp_dir or PROFILE_PATH
     try:
         _browser_context = p.chromium.launch_persistent_context(
             user_data_dir=profile_dir,
-            headless=False,
+            headless=headless,
             executable_path=CHROME_PATH,
             viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
             user_agent=BROWSER_CONFIG.get("user_agent"),
+            locale=locale,
+            timezone_id=timezone_id,
+            geolocation=geolocation,
+            permissions=permissions,
         )
         logger.info(f"   ✅ Persistent context: {'profile tạm' if _temp_dir else 'profile gốc'}")
     except Exception as exc:
         err = str(exc)
+        # exitCode=21 = ERROR_NOT_READY → profile đang bị lock bởi Chrome cũ
         is_lock = any(k in err for k in (
             "ProcessSingleton", "profile is already in use",
-            "Lock file", "TargetClosedError",
+            "Lock file", "TargetClosedError", "exitCode=21",
         ))
         if is_lock and not use_temp_profile:
-            logger.warning("[⚠️] Profile bị lock — fallback sang profile tạm")
-            _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
-            _browser_context = p.chromium.launch_persistent_context(
-                user_data_dir=_temp_dir,
-                headless=False,
-                executable_path=CHROME_PATH,
-                viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
-                user_agent=BROWSER_CONFIG.get("user_agent"),
-            )
-            logger.info(f"   ✅ Dùng profile tạm: {_temp_dir}")
+            logger.warning("[⚠️] Profile bị lock (exitCode=21?) — thử kill Chrome & xóa lock rồi launch lại")
+            _kill_all_chrome_on_profile(PROFILE_PATH)
+            _cleanup_chrome_locks(PROFILE_PATH)
+            try:
+                # Retry lần 2 với profile gốc sau khi đã dọn dẹp
+                _browser_context = p.chromium.launch_persistent_context(
+                    user_data_dir=PROFILE_PATH,
+                    headless=headless,
+                    executable_path=CHROME_PATH,
+                    viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
+                    user_agent=BROWSER_CONFIG.get("user_agent"),
+                    locale=locale,
+                    timezone_id=timezone_id,
+                    geolocation=geolocation,
+                    permissions=permissions,
+                )
+                logger.info("   ✅ Retry thành công với profile gốc")
+            except Exception as exc2:
+                logger.warning(f"[⚠️] Vẫn lỗi sau retry: {exc2} — fallback sang profile tạm")
+                _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
+                _browser_context = p.chromium.launch_persistent_context(
+                    user_data_dir=_temp_dir,
+                    headless=headless,
+                    executable_path=CHROME_PATH,
+                    viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
+                    user_agent=BROWSER_CONFIG.get("user_agent"),
+                    locale=locale,
+                    timezone_id=timezone_id,
+                    geolocation=geolocation,
+                    permissions=permissions,
+                )
+                logger.info(f"   ✅ Dùng profile tạm: {_temp_dir}")
         else:
             raise
 
@@ -848,22 +1072,49 @@ def _launch_browser(p, use_temp_profile: bool = False):
 
 
 def _close_browser(browser, browser_context, browser_pid, temp_dir=None) -> None:
-    """Đóng browser hoàn toàn và xóa profile tạm nếu có."""
-    if browser_pid:
+    """Đóng browser hoàn toàn và xóa profile tạm nếu có.
+
+    Gọi browser_context.close() trực tiếp trên thread hiện tại (bắt buộc bởi
+    Playwright greenlet). Dùng watchdog thread để force kill nếu close() bị treo.
+    """
+    logger.info(f"[DEBUG] _close_browser: context={browser_context is not None}, "
+                f"pid={browser_pid}, temp={temp_dir}")
+
+    graceful_ok = False
+
+    # Watchdog: nếu close() treo quá 15s → force kill
+    watchdog_fired = threading.Event()
+    def _watchdog():
+        if not watchdog_fired.wait(timeout=15):
+            logger.warning("[⚠️] close() treo quá 15s → force kill Chrome")
+            if browser_pid:
+                _kill_browser_pid(browser_pid)
+
+    if browser_context is not None:
+        # Khởi động watchdog trước khi gọi close
+        wd = threading.Thread(target=_watchdog, daemon=True)
+        wd.start()
+
+        try:
+            browser_context.close()
+            graceful_ok = True
+            logger.info("[✅] Browser context đã đóng sạch")
+        except Exception as e:
+            logger.warning(f"[⚠️] browser_context.close() lỗi: {e}")
+        finally:
+            watchdog_fired.set()  # Hủy watchdog
+
+    if browser is not None:
+        try:
+            browser.close()
+        except Exception:
+            pass
+
+    # Force kill chỉ khi graceful close thất bại
+    if not graceful_ok and browser_pid:
+        logger.info(f"[🔒] Force kill Chrome PID {browser_pid}")
         _kill_browser_pid(browser_pid)
-    else:
-        if browser_context is not None:
-            done = threading.Event()
-            def _do_close():
-                try: browser_context.close()
-                except Exception: pass
-                finally: done.set()
-            t = threading.Thread(target=_do_close, daemon=True)
-            t.start()
-            t.join(timeout=10)
-        if browser is not None:
-            try: browser.close()
-            except Exception: pass
+
     if temp_dir:
         try:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -872,7 +1123,9 @@ def _close_browser(browser, browser_context, browser_pid, temp_dir=None) -> None
             pass
 
 
-def _search_keywords_common(keywords: List[str], is_detailed: bool = False) -> None:
+def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
+                            on_progress=None, on_result=None, stop_event=None,
+                            headless: bool = False, location: str = "default") -> None:
     """Hàm chung để tìm kiếm từ khóa (thông thường hoặc chi tiết)"""
     if not keywords:
         logger.error("❌ Không có từ khóa để tìm kiếm!")
@@ -895,7 +1148,9 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False) -> N
 
         try:
             p = sync_playwright().start()
-            browser, browser_context, _browser_pid, _temp_dir = _launch_browser(p)
+            mode_label = 'headless' if headless else 'visible'
+            logger.info(f"[🌐] Khởi động Chrome ({mode_label}, vị trí: {location})")
+            browser, browser_context, _browser_pid, _temp_dir = _launch_browser(p, headless=headless, location=location)
 
             page = browser_context.new_page()
             recent_responses, recent_failed_requests, recent_console = _setup_debug_handlers(page)
@@ -903,6 +1158,13 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False) -> N
             total = len(keywords)
 
             for idx, kw in enumerate(keywords, start=1):
+                # Kiểm tra stop signal
+                if stop_event and stop_event.is_set():
+                    logger.info("⏹ Đã dừng tìm kiếm Baidu.")
+                    break
+                # Gọi on_progress
+                if on_progress:
+                    on_progress(idx, total, kw)
                 # Khôi phục page nếu bị đóng hoặc không còn dùng được
                 _page_ok = False
                 try:
@@ -920,23 +1182,89 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False) -> N
                         logger.info("[✅] Đã tạo page mới thành công")
                     except Exception as e:
                         logger.error(f"[❌] Không thể tạo page mới: {e}")
-                        # Ghi lỗi cho từ khóa hiện tại và tất cả từ khóa còn lại
-                        remaining = keywords[idx - 1:]  # idx bắt đầu từ 1
+                        remaining = keywords[idx - 1:]
                         for _rem_kw in remaining:
                             results.append(("Lỗi: Không thể tạo page mới", "", "", False, "", ""))
                             counters["error"] += 1
                         break
 
-                result = _process_single_keyword(
-                    page, kw, idx, total, processed_keywords,
-                    recent_responses, recent_failed_requests, recent_console,
-                    is_detailed,
-                )
+                # ── Retry loop: thử lại từ khóa bị timeout/lỗi ──
+                result = None
+                max_retries = NO_RESULT_MAX_RETRIES
+                for attempt in range(1, max_retries + 1):
+                    # Xóa keyword khỏi processed_keywords nếu đang retry
+                    # (lần đầu thì chưa có, các lần sau thì cần xóa để không bị "Trùng lặp")
+                    if attempt > 1:
+                        processed_keywords.discard(kw)
 
-                # Xử lý captcha: người dùng đã bỏ qua (không giải)
-                if result[0] == "__CAPTCHA_SKIPPED__":
-                    logger.warning(f"[⏭] Người dùng bỏ qua captcha: {kw}")
-                    result = ("Lỗi: Bị captcha Baidu", "", "", False, "", "")
+                    # Lần cuối: chuyển sang tìm kiếm chi tiết (homepage → gõ → search)
+                    use_detailed = is_detailed or (attempt == max_retries)
+                    if attempt == max_retries and not is_detailed:
+                        logger.info(
+                            f"[🔄] Retry {attempt}/{max_retries} cho '{kw}' "
+                            f"— chuyển sang tìm kiếm chi tiết"
+                        )
+
+                    result = _process_single_keyword(
+                        page, kw, idx, total, processed_keywords,
+                        recent_responses, recent_failed_requests, recent_console,
+                        use_detailed,
+                    )
+
+                    # Xử lý captcha: người dùng đã bỏ qua (không giải)
+                    if result[0] == "__CAPTCHA_SKIPPED__":
+                        logger.warning(f"[⏭] Người dùng bỏ qua captcha: {kw}")
+                        result = ("Lỗi: Bị captcha Baidu", "", "", False, "", "")
+                        break  # Captcha → không retry
+
+                    # Kiểm tra kết quả có phải lỗi timeout/tải trang không
+                    is_retryable_error = (
+                        result[0].startswith("Lỗi") and
+                        result[0] != "Trùng lặp từ khóa"
+                    )
+
+                    if is_retryable_error and attempt < max_retries:
+                        retry_delay = random.uniform(
+                            NO_RESULT_RETRY_DELAY_MIN,
+                            NO_RESULT_RETRY_DELAY_MAX,
+                        )
+                        logger.warning(
+                            f"[🔄] Retry {attempt}/{max_retries} cho '{kw}' "
+                            f"(lỗi: {result[0]}) — chờ {retry_delay:.1f}s"
+                        )
+                        time.sleep(retry_delay)
+
+                        # Khôi phục page trước khi retry
+                        _page_ok = False
+                        try:
+                            _ = page.url
+                            page.evaluate("1")
+                            _page_ok = True
+                        except Exception:
+                            _page_ok = False
+
+                        if not _page_ok:
+                            logger.warning(f"[⚠️] Page chết trước retry – tạo page mới")
+                            try:
+                                page = browser_context.new_page()
+                                recent_responses, recent_failed_requests, recent_console = _setup_debug_handlers(page)
+                                logger.info("[✅] Đã tạo page mới cho retry")
+                            except Exception as e:
+                                logger.error(f"[❌] Không thể tạo page mới cho retry: {e}")
+                                break  # Không thể retry, giữ kết quả lỗi hiện tại
+                        continue  # Retry lại từ khóa
+                    else:
+                        # Thành công hoặc hết retry
+                        if is_retryable_error and attempt == max_retries:
+                            logger.error(
+                                f"[❌] Đã hết {max_retries} lần retry cho '{kw}' "
+                                f"– lỗi cuối: {result[0]}"
+                            )
+                        break
+
+                # Gọi on_result ngay sau khi có kết quả cuối cùng
+                if on_result:
+                    on_result(idx, kw, result)
 
                 if result[0] == "Trùng lặp từ khóa":
                     counters["duplicate"] += 1
@@ -1008,11 +1336,17 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False) -> N
         logger.info("[ℹ️] Không có kết quả để ghi.")
 
 
-def search_keywords(keywords: List[str]) -> None:
+def search_keywords(keywords: List[str], on_progress=None, on_result=None, stop_event=None,
+                    headless: bool = False, location: str = "default") -> None:
     """Tìm kiếm từ khóa trên Baidu (thông thường)"""
-    _search_keywords_common(keywords, is_detailed=False)
+    _search_keywords_common(keywords, is_detailed=False,
+                            on_progress=on_progress, on_result=on_result, stop_event=stop_event,
+                            headless=headless, location=location)
 
 
-def search_keywords_detailed(keywords: List[str]) -> None:
+def search_keywords_detailed(keywords: List[str], on_progress=None, on_result=None, stop_event=None,
+                             headless: bool = False, location: str = "default") -> None:
     """Tìm kiếm từ khóa trên Baidu với chi tiết (nhấn button 3 lần)"""
-    _search_keywords_common(keywords, is_detailed=True)
+    _search_keywords_common(keywords, is_detailed=True,
+                            on_progress=on_progress, on_result=on_result, stop_event=stop_event,
+                            headless=headless, location=location)

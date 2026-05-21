@@ -17,9 +17,8 @@ PROJECT_DIR = MODULE_DIR.parent.resolve()
 # input_keywords.txt nằm ở thư mục gốc để dễ chỉnh sửa
 INPUT_FILE = PROJECT_DIR / "input_keywords.txt"
 # Các file còn lại nằm trong thư mục module
-OLD_KEYWORDS_FILE = MODULE_DIR / "old_keywords.txt"
-OUTPUT_FILE = MODULE_DIR / "keywords_output.txt"
-OUTPUT_ALL_FILE = MODULE_DIR / "keywords_all.txt"
+# keywords.txt = danh sách từ khóa đã có (dùng để đối chiếu trùng lặp)
+KEYWORDS_FILE = MODULE_DIR / "keywords.txt"
 TEMP_FILE = MODULE_DIR / "keywords_temp.txt"
 
 HEADLESS = True
@@ -183,34 +182,23 @@ def scrape_keywords_for_keyword(page, keyword):
     return collected_keywords, captcha_detected
 
 
-def save_results(all_keywords: set, old_keywords: set) -> set:
-    """Save final results. Trả về tập từ khóa MỚI (chưa có trong old_keywords)."""
+def save_results(all_keywords: set, existing_keywords: set) -> set:
+    """Tính toán từ khóa MỚI (chưa có trong existing_keywords). Không ghi file.
+    Việc cập nhật keywords.txt do người dùng thực hiện thủ công."""
     print("\n" + "=" * 70)
     print("📊 RESULTS")
     print("=" * 70)
 
     if all_keywords:
-        print(f"📦 Total: {len(all_keywords)} keywords")
+        print(f"📦 Total collected: {len(all_keywords)} keywords")
 
-        new_keywords = all_keywords - old_keywords
+        new_keywords = all_keywords - existing_keywords
         duplicate_count = len(all_keywords) - len(new_keywords)
 
-        print(f"🔄 Duplicates: {duplicate_count}")
+        print(f"🔄 Duplicates (already in keywords.txt): {duplicate_count}")
         print(f"✨ NEW: {len(new_keywords)}")
 
-        # Save all
-        with open(OUTPUT_ALL_FILE, 'w', encoding='utf-8') as f:
-            for kw in sorted(all_keywords):
-                f.write(kw + '\n')
-        print(f"\n💾 All → {OUTPUT_ALL_FILE}")
-
-        # Save new
         if new_keywords:
-            with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-                for kw in sorted(new_keywords):
-                    f.write(kw + '\n')
-            print(f"💾 New → {OUTPUT_FILE}")
-
             sample_size = min(20, len(new_keywords))
             print(f"\n📋 NEW keywords (showing {sample_size}/{len(new_keywords)}):")
             print("-" * 70)
@@ -241,7 +229,10 @@ def run() -> set:
     interrupted = False
 
     # Setup signal handler for Ctrl+C
-    signal.signal(signal.SIGINT, signal_handler)
+    try:
+        signal.signal(signal.SIGINT, signal_handler)
+    except ValueError:
+        pass
 
     print("🚀 Baidu Keyword Scraper (Optimized)")
     print("=" * 70)
@@ -262,9 +253,9 @@ def run() -> set:
 
     print(f"📥 {len(input_keywords)} keywords to process")
 
-    old_keywords = load_old_keywords(OLD_KEYWORDS_FILE)
+    old_keywords = load_old_keywords(KEYWORDS_FILE)
     if old_keywords:
-        print(f"📚 {len(old_keywords)} old keywords loaded")
+        print(f"📚 {len(old_keywords)} existing keywords loaded from keywords.txt")
 
     print(f"💡 Press Ctrl+C to stop and save progress")
     print("=" * 70)

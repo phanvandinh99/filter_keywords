@@ -23,6 +23,7 @@ from constants import (
     DEBUG_ARTIFACTS_MAX_RESPONSES,
     DEBUG_ARTIFACTS_MAX_FAILED_REQUESTS,
     DEBUG_ARTIFACTS_MAX_CONSOLE,
+    LOCATION_PROFILES,
 )
 
 logger = logging.getLogger()
@@ -564,7 +565,8 @@ def _process_sogou_keyword(
         return (error_msg, "", "", False, "", "")
 
 
-def search_sogou_keywords(keywords: List[str]) -> None:
+def search_sogou_keywords(keywords: List[str], on_progress=None, on_result=None, stop_event=None,
+                          headless: bool = False, location: str = "default") -> None:
     """Tìm kiếm từ khóa trên Sogou (sogou.com)"""
     if not keywords:
         logger.error("❌ Không có từ khóa để tìm kiếm trên Sogou!")
@@ -573,12 +575,23 @@ def search_sogou_keywords(keywords: List[str]) -> None:
     results = []
     processed_keywords: set = set()
 
+    loc_prof = LOCATION_PROFILES.get(location, LOCATION_PROFILES["default"])
+    locale = loc_prof.get("locale")
+    timezone_id = loc_prof.get("timezone_id")
+    geolocation = loc_prof.get("geolocation")
+    permissions = ["geolocation"] if geolocation else None
+
     with sync_playwright() as p:
         browser_context = p.chromium.launch_persistent_context(
             user_data_dir=PROFILE_PATH,
-            headless=False,
+            headless=headless,
             executable_path=CHROME_PATH,
-            **SOGOU_BROWSER_CONFIG,
+            viewport=SOGOU_BROWSER_CONFIG.get("viewport", {"width": 1280, "height": 800}),
+            user_agent=SOGOU_BROWSER_CONFIG.get("user_agent"),
+            locale=locale,
+            timezone_id=timezone_id,
+            geolocation=geolocation,
+            permissions=permissions,
         )
 
         page = browser_context.new_page()
@@ -590,6 +603,11 @@ def search_sogou_keywords(keywords: List[str]) -> None:
         error_count = 0
 
         for idx, kw in enumerate(keywords, start=1):
+            if stop_event and stop_event.is_set():
+                logger.info("⏹ Đã dừng tìm kiếm Sogou.")
+                break
+            if on_progress:
+                on_progress(idx, total, kw)
             # Kiểm tra page còn sống không — nếu chết thì tạo lại
             page_alive = False
             try:
@@ -613,6 +631,8 @@ def search_sogou_keywords(keywords: List[str]) -> None:
                 page, kw, idx, total, processed_keywords,
                 recent_responses, recent_failed_requests, recent_console,
             )
+            if on_result:
+                on_result(idx, kw, result)
 
             if result[0] == "Trùng lặp từ khóa":
                 duplicate_count += 1

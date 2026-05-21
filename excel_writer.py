@@ -268,3 +268,30 @@ def write_search_results(
         logger.info(f"✅ Số thành công: {success_count}")
         logger.info(f"❌ Số lỗi: {error_count}")
         logger.info("=" * 60)
+
+
+def write_rows_to_excel(rows: List[dict], out_path: str) -> None:
+    """Export từ JSON rows ra file Excel đẹp (dùng cho Web UI)."""
+    keywords = [r.get("keyword", "") for r in rows]
+    results = [
+        (r.get("title", ""), r.get("domain", ""), r.get("time_tag", ""),
+         False, "", r.get("title", ""))
+        for r in rows
+    ]
+    added_texts = [""] * len(rows)
+    main_titles_map = {r.get("keyword", "").strip(): r.get("main_title", "") for r in rows}
+
+    output_df = pd.DataFrame(index=range(len(results)))
+    for col in range(4):
+        output_df[col] = ""
+    for i, (title, domain, time_tag, *_) in enumerate(results):
+        output_df.iloc[i, 0] = keywords[i].strip() if keywords[i] else ""
+        output_df.iloc[i, 1] = str(title).strip() if title else ""
+        output_df.iloc[i, 2] = str(domain).strip() if domain else ""
+        output_df.iloc[i, 3] = str(time_tag).strip() if time_tag else ""
+    output_df[4] = [i + 1 for i in range(len(results))]
+    output_df[5] = [r.get("main_title", "") for r in rows]
+
+    header_row = pd.DataFrame([["Từ khóa", "Tiêu đề", "Domain", "Thời gian", "STT", "Tiêu đề chính"]])
+    output_df = pd.concat([header_row, output_df], ignore_index=True)
+    _write_excel_full(output_df, Path(out_path), added_texts, main_titles_map)

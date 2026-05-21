@@ -25,6 +25,7 @@ from constants import (
     DEBUG_ARTIFACTS_MAX_RESPONSES,
     DEBUG_ARTIFACTS_MAX_FAILED_REQUESTS,
     DEBUG_ARTIFACTS_MAX_CONSOLE,
+    LOCATION_PROFILES,
 )
 
 logger = logging.getLogger()
@@ -303,6 +304,8 @@ def _process_google_keyword(
     recent_responses: deque,
     recent_failed_requests: deque,
     recent_console: deque,
+    hl: Optional[str] = None,
+    gl: Optional[str] = None,
 ) -> Tuple[str, str, str, bool, str, str]:
     """Xử lý một từ khóa trên Google"""
     kw = str(keyword).strip()
@@ -325,6 +328,8 @@ def _process_google_keyword(
 
         encoded_kw = urllib.parse.quote(kw, encoding="utf-8")
         url = GOOGLE_URLS["google_search"].format(encoded_kw)
+        if hl and gl:
+            url += f"&hl={hl}&gl={gl}"
 
         if not _navigate_to_google_search(page, url, kw):
             raise PlaywrightTimeoutError(f"Google navigation failed for {kw}")
@@ -377,7 +382,8 @@ def _process_google_keyword(
         return (error_msg, "", "", False, "", "")
 
 
-def search_google_keywords(keywords: List[str]) -> None:
+def search_google_keywords(keywords: List[str], on_progress=None, on_result=None, stop_event=None,
+                           headless: bool = False, location: str = "default") -> None:
     """Tìm kiếm từ khóa trên Google"""
     if not keywords:
         logger.error("❌ Không có từ khóa để tìm kiếm trên Google!")
@@ -386,12 +392,23 @@ def search_google_keywords(keywords: List[str]) -> None:
     results = []
     processed_keywords: set = set()
 
+    loc_prof = LOCATION_PROFILES.get(location, LOCATION_PROFILES["default"])
+    locale = loc_prof.get("locale")
+    timezone_id = loc_prof.get("timezone_id")
+    geolocation = loc_prof.get("geolocation")
+    permissions = ["geolocation"] if geolocation else None
+
     with sync_playwright() as p:
         browser_context = p.chromium.launch_persistent_context(
             user_data_dir=PROFILE_PATH,
-            headless=False,
+            headless=headless,
             executable_path=CHROME_PATH,
-            **BROWSER_CONFIG,
+            viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
+            user_agent=BROWSER_CONFIG.get("user_agent"),
+            locale=locale,
+            timezone_id=timezone_id,
+            geolocation=geolocation,
+            permissions=permissions,
         )
 
         page = browser_context.new_page()
@@ -403,6 +420,11 @@ def search_google_keywords(keywords: List[str]) -> None:
         error_count = 0
 
         for idx, kw in enumerate(keywords, start=1):
+            if stop_event and stop_event.is_set():
+                logger.info("⏹ Đã dừng tìm kiếm Google.")
+                break
+            if on_progress:
+                on_progress(idx, total, kw)
             # Khôi phục page nếu bị đóng
             try:
                 _ = page.url
@@ -413,7 +435,10 @@ def search_google_keywords(keywords: List[str]) -> None:
             result = _process_google_keyword(
                 page, kw, idx, total, processed_keywords,
                 recent_responses, recent_failed_requests, recent_console,
+                hl=loc_prof.get("hl"), gl=loc_prof.get("gl")
             )
+            if on_result:
+                on_result(idx, kw, result)
 
             if result[0] == "Trùng lặp từ khóa":
                 duplicate_count += 1

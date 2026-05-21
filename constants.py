@@ -153,11 +153,19 @@ BLOCKED_SOURCES = [
     "GitHub",
 ]
 
-# ── Domain bị loại bỏ ────────────────────────────────────────────────────────
-# Kết quả có domain khớp bất kỳ suffix nào dưới đây sẽ bị bỏ qua.
-# Ví dụ: "baidu.com" sẽ match m.baidu.com, www.baidu.com, tieba.baidu.com, ...
+# ── Domain bị loại bỏ ──────────────────────────────────────────────────────────────────
+# Kết quả có domain thuộc danh sách này sẽ bị bỏ qua hoàn toàn (không giữ title, không lấy domain).
+# Hỗ trợ 2 loại:
+#   - Exact match: "www.baidu.com" chỉ block đúng domain đó
+#   - Suffix match (thêm dấu . ở đầu): ".baidu.com" block tất cả subdomain của baidu.com
+#     VÍ DỤ: ".baidu.com" sẽ block baijiahao.baidu.com, tieba.baidu.com, v.v.
 BLOCKED_DOMAINS = [
-    "baidu.com",    # Tất cả subdomain của Baidu (m.baidu.com, tieba.baidu.com, ...)
+    # Tất cả subdomain của Baidu (baijiahao.baidu.com, tieba.baidu.com, v.v.)
+    "baidu.com",
+    ".baidu.com",
+    # Game site — block tất cả subdomain của 3dmgame.com (app.3dmgame.com, v.v.)
+    "3dmgame.com",
+    ".3dmgame.com",
 ]
 
 # Debug settings
@@ -196,3 +204,47 @@ MOBILE_USER_AGENTS = [
     "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36",
     "Mozilla/5.0 (Linux; Android 13; SM-A546B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Mobile Safari/537.36",
 ]
+
+LOCATION_PROFILES = {
+    "default": {
+        "name": "Mặc định",
+        "hl": None,
+        "gl": None,
+        "locale": None,
+        "timezone_id": None,
+        "geolocation": None,
+    },
+    "vn": {
+        "name": "Việt Nam",
+        "hl": "vi",
+        "gl": "vn",
+        "locale": "vi-VN",
+        "timezone_id": "Asia/Ho_Chi_Minh",
+        "geolocation": {"latitude": 21.0285, "longitude": 105.8048, "accuracy": 1000},
+    },
+    "cn": {
+        "name": "Trung Quốc",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "locale": "zh-CN",
+        "timezone_id": "Asia/Shanghai",
+        "geolocation": {"latitude": 39.9042, "longitude": 116.4074, "accuracy": 1000},
+    },
+    "us": {
+        "name": "Mỹ",
+        "hl": "en",
+        "gl": "us",
+        "locale": "en-US",
+        "timezone_id": "America/New_York",
+        "geolocation": {"latitude": 40.7128, "longitude": -74.0060, "accuracy": 1000},
+    },
+    "jp": {
+        "name": "Nhật Bản",
+        "hl": "ja",
+        "gl": "jp",
+        "locale": "ja-JP",
+        "timezone_id": "Asia/Tokyo",
+        "geolocation": {"latitude": 35.6762, "longitude": 139.6503, "accuracy": 1000},
+    }
+}
+

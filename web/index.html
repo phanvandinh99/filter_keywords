@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Keyword Tool</title>
+<link rel="stylesheet" href="/static/style.css?v=7">
+<script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.2/dist/ag-grid-community.min.js"></script>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>🔑 Keyword Tool</h1>
+  <button class="theme-btn" id="btn-theme" title="Chuyển sáng/tối">☀️ Sáng</button>
+  <div class="ip-badge" id="ip-badge" title="Đang kiểm tra IP hiện tại...">
+    🌐 Đang tải IP...
+  </div>
+  <div class="ws-dot" id="ws-dot" title="WebSocket"></div>
+</div>
+
+<div id="toolbar">
+  <button class="btn" id="btn-dedup" title="Loại bỏ các từ khóa trùng lặp trong danh sách">🧹 Trùng lặp</button>
+  <button class="btn danger" id="btn-banned" title="Lọc và xóa các từ khóa chứa từ cấm">🚫 Từ cấm</button>
+  <div class="sep"></div>
+  <button class="btn primary" id="btn-baidu" title="Tìm kiếm từ khóa trên Baidu (chế độ nhanh)">🔍 Baidu</button>
+  <button class="btn primary" id="btn-baidu-detail" title="Tìm kiếm từ khóa trên Baidu (chế độ chi tiết, chính xác hơn, click tìm kiếm 3 lần liên tiếp)">🔍 Baidu CT</button>
+  <button class="btn success" id="btn-auto-baidu" title="Tự động lấy gợi ý từ khóa mới từ Baidu dựa trên input_keywords.txt và tìm kiếm kết quả Baidu">🚀 Baidu từ mới</button>
+  <button class="btn primary" id="btn-google" title="Tìm kiếm từ khóa trên Google">🌐 Google</button>
+  <button class="btn primary" id="btn-sogou" title="Tìm kiếm từ khóa trên Sogou">🔎 Sogou</button>
+  <label class="chk-headless" title="Ẩn trình duyệt Chrome khi tìm kiếm (headless mode)"><input type="checkbox" id="chk-headless"> Ẩn Chrome</label>
+  <button class="btn stop" id="btn-stop" style="display:none" title="Dừng quá trình tìm kiếm đang chạy">■ Dừng</button>
+  <div class="sep"></div>
+  <button class="btn" id="btn-import" title="Import danh sách từ khóa từ file Excel (.xlsx)">📥 Import</button>
+  <button class="btn success" id="btn-export" title="Xuất kết quả ra file Excel (.xlsx)">📤 Export</button>
+  <button class="btn" id="btn-edit-banned" title="Mở danh sách từ cấm để chỉnh sửa">✏️ Từ cấm</button>
+  <button class="btn" id="btn-edit-seed" title="Mở danh sách từ khóa mới (seed keywords) để lấy gợi ý từ Baidu">✏️ Từ khóa mới</button>
+  <button class="btn" id="btn-edit-kwfiles" title="Chỉnh sửa keywords.txt và priority_titles.txt">📝 KW Files</button>
+  <button class="btn" id="btn-settings" title="Cài đặt đường dẫn Chrome và Profile">⚙️ Cài đặt</button>
+  <div class="sep"></div>
+  <button class="btn" id="btn-save" title="Lưu toàn bộ dữ liệu hiện tại">💾 Lưu</button>
+  <button class="btn" id="btn-clear-results" title="Xóa cột kết quả (Title, Domain, Thời Gian) nhưng giữ từ khóa">🗑 Xóa KQ</button>
+  <input type="file" id="file-input" accept=".xlsx" style="display:none">
+  <span class="kw-count" id="kw-count">0 từ khóa</span>
+  <span class="row-count" id="row-count">0 dòng</span>
+</div>
+
+<div id="quick-add">
+  <button class="btn danger" id="btn-del-row" title="Xóa các dòng đang được chọn (checkbox)">🗑 Xóa dòng</button>
+  <button class="btn" id="btn-clear-all" title="Reset toàn bộ cột kết quả về trống">↺ Reset cột</button>
+</div>
+
+
+<div id="main">
+  <div id="grid-wrap">
+    <div id="myGrid" class="ag-theme-alpine"></div>
+  </div>
+
+  <div id="progress-bar-wrap">
+    <div id="progress-info">
+      <span><span id="progress-cur">0</span>/<span id="progress-tot">0</span> — <span id="progress-kw"></span></span>
+      <span id="progress-pct">0%</span>
+    </div>
+    <div id="progress-track"><div id="progress-fill" style="width:0%"></div></div>
+  </div>
+
+  <div id="log-wrap">
+    <div id="log-header">
+      <span>📋 Log</span>
+      <button class="btn" id="btn-clear-log" style="padding:2px 8px;font-size:11px">Xóa</button>
+      <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer">
+        <input type="checkbox" id="auto-scroll" checked> Auto scroll
+      </label>
+    </div>
+    <div id="log-body"></div>
+  </div>
+</div>
+
+<!-- Modal Settings -->
+<div class="modal-overlay" id="modal-settings">
+  <div class="modal">
+    <h2>⚙️ Cài Đặt Chrome</h2>
+    <div class="form-group">
+      <label>Chrome Profile Path</label>
+      <input type="text" id="set-profile">
+    </div>
+    <div class="form-group">
+      <label>Chrome Executable Path</label>
+      <input type="text" id="set-chrome">
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="btn-settings-cancel">Hủy</button>
+      <button class="btn primary" id="btn-settings-save">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Banned -->
+<div class="modal-overlay" id="modal-banned">
+  <div class="modal">
+    <h2>🚫 Danh Sách Từ Cấm</h2>
+    <div class="form-group">
+      <label>Mỗi từ cấm một dòng</label>
+      <textarea id="banned-content" rows="10"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="btn-banned-cancel">Hủy</button>
+      <button class="btn primary" id="btn-banned-save">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Seed Keywords -->
+<div class="modal-overlay" id="modal-seed">
+  <div class="modal">
+    <h2>🌱 Danh Sách Từ Khóa mới (Seed Keywords)</h2>
+    <div class="form-group">
+      <label>Mỗi từ khóa mới một dòng để tự động lấy gợi ý từ Baidu</label>
+      <textarea id="seed-content" rows="10" placeholder="Ví dụ:&#10;game bai&#10;nha cai uy tin"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="btn-seed-cancel">Hủy</button>
+      <button class="btn primary" id="btn-seed-save">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal KW Files -->
+<div class="modal-overlay" id="modal-kwfiles">
+  <div class="modal modal-wide">
+    <h2>📝 Chỉnh sửa Keyword Files</h2>
+    <div class="kwf-tabs">
+      <button class="kwf-tab active" data-tab="kwf-all">📄 keywords.txt <span class="kwf-badge" id="kwf-count-all">0</span></button>
+      <button class="kwf-tab" data-tab="kwf-priority">🎯 priority_titles.txt <span class="kwf-badge" id="kwf-count-priority">0</span></button>
+    </div>
+    <div class="kwf-panel active" id="kwf-all">
+      <div class="form-group">
+        <label>Danh sách từ khóa đã tồn tại, tránh trùng lặp (Chỉ áp dụng cho baidu)</label>
+        <textarea id="kwf-all-content" rows="20" spellcheck="false" placeholder="Nhập từ khóa, mỗi dòng một từ khóa..."></textarea>
+      </div>
+    </div>
+    <div class="kwf-panel" id="kwf-priority">
+      <div class="form-group">
+        <label>Lấy từ khóa mới điều kiện (Ký tự * ở 1 dòng nghĩa là lấy hết)</label>
+        <textarea id="kwf-priority-content" rows="20" spellcheck="false" placeholder="Nhập từ khóa ưu tiên trong tiêu đề, mỗi dòng một từ..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="btn-kwfiles-cancel">Hủy</button>
+      <button class="btn primary" id="btn-kwfiles-save">💾 Lưu tất cả</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="/static/app.js?v=7"></script>
+</body>
+</html>
