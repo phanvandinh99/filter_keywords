@@ -417,6 +417,7 @@ function handleMsg(msg) {
   else if (msg.type === 'progress') updateProgress(msg.current, msg.total, msg.keyword, msg.pct);
   else if (msg.type === 'result') applyResult(msg);
   else if (msg.type === 'done') onSearchDone(msg);
+  else if (msg.type === 'refresh_data') setGridDataEnsuringEmptyRow(msg.rows);
 }
 
 function appendLog(text, level = 'info') {
@@ -456,11 +457,15 @@ async function onSearchDone(msg) {
 // ── Search ─────────────────────────────────────────────────────
 function setRunning(v) {
   isRunning = v;
-  ['btn-baidu','btn-baidu-detail','btn-google','btn-sogou'].forEach(id =>
-    document.getElementById(id).disabled = v);
+  ['btn-baidu','btn-baidu-detail','btn-auto-baidu','btn-google','btn-sogou'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = v;
+  });
   document.getElementById('btn-stop').style.display = v ? '' : 'none';
-  ['btn-dedup','btn-banned','btn-import'].forEach(id =>
-    document.getElementById(id).disabled = v);
+  ['btn-dedup','btn-banned','btn-import','btn-edit-banned','btn-edit-seed','btn-settings','btn-save','btn-clear-results','btn-clear-all','btn-del-row'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = v;
+  });
 }
 
 async function loadIpInfo() {
@@ -494,6 +499,10 @@ async function runSearch(action) {
       const err = await res.json();
       toast(err.detail || 'Lỗi', 'error');
       setRunning(false);
+      if (action === 'auto_baidu' && res.status === 400) {
+        // Tự động mở popup nhập từ khóa mới
+        document.getElementById('btn-edit-seed').click();
+      }
     }
   } catch (e) {
     toast('Lỗi: ' + e.message, 'error');
@@ -503,6 +512,7 @@ async function runSearch(action) {
 
 document.getElementById('btn-baidu').onclick = () => runSearch('baidu');
 document.getElementById('btn-baidu-detail').onclick = () => runSearch('baidu_detailed');
+document.getElementById('btn-auto-baidu').onclick = () => runSearch('auto_baidu');
 document.getElementById('btn-google').onclick = () => runSearch('google');
 document.getElementById('btn-sogou').onclick = () => runSearch('sogou');
 document.getElementById('btn-stop').onclick = () => fetch('/api/stop', { method: 'POST' });
@@ -622,6 +632,24 @@ document.getElementById('btn-banned-save').onclick = async () => {
   });
   document.getElementById('modal-banned').classList.remove('open');
   toast('Đã lưu từ cấm', 'success');
+};
+
+// ── Seed Keywords ──────────────────────────────────────────────
+document.getElementById('btn-edit-seed').onclick = async () => {
+  const r = await fetch('/api/seed');
+  const d = await r.json();
+  document.getElementById('seed-content').value = d.content || '';
+  document.getElementById('modal-seed').classList.add('open');
+};
+document.getElementById('btn-seed-cancel').onclick = () =>
+  document.getElementById('modal-seed').classList.remove('open');
+document.getElementById('btn-seed-save').onclick = async () => {
+  await fetch('/api/seed', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: document.getElementById('seed-content').value }),
+  });
+  document.getElementById('modal-seed').classList.remove('open');
+  toast('Đã lưu từ khóa mới', 'success');
 };
 
 // Close modals on overlay click

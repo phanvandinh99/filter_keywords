@@ -241,7 +241,10 @@ def run() -> set:
     interrupted = False
 
     # Setup signal handler for Ctrl+C
-    signal.signal(signal.SIGINT, signal_handler)
+    try:
+        signal.signal(signal.SIGINT, signal_handler)
+    except ValueError:
+        pass
 
     print("🚀 Baidu Keyword Scraper (Optimized)")
     print("=" * 70)

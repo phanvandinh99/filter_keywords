@@ -175,6 +175,19 @@ async def api_save_banned(body: Dict[str, str]):
     BANNED_FILE.write_text(body.get("content", ""), encoding="utf-8")
     return {"ok": True}
 
+@app.get("/api/seed")
+async def api_get_seed():
+    input_file = BASE_DIR / "input_keywords.txt"
+    if input_file.exists():
+        return {"content": input_file.read_text(encoding="utf-8")}
+    return {"content": ""}
+
+@app.post("/api/seed")
+async def api_save_seed(body: Dict[str, str]):
+    input_file = BASE_DIR / "input_keywords.txt"
+    input_file.write_text(body.get("content", ""), encoding="utf-8")
+    return {"ok": True}
+
 @app.get("/api/ip-info")
 def api_ip_info():
     import urllib.request
@@ -283,10 +296,126 @@ async def api_export():
 
 # ── Search actions ─────────────────────────────────────────────────────────────
 
+class WSStream:
+    def __init__(self, original_stream):
+        self.original_stream = original_stream
+    def write(self, text):
+        self.original_stream.write(text)
+        text_str = text.strip()
+        if text_str:
+            level = "info"
+            if "✅" in text_str: level = "success"
+            elif "❌" in text_str or "🚫" in text_str: level = "error"
+            elif "⚠️" in text_str: level = "warning"
+            elif "🚀" in text_str: level = "search"
+            push_log(text_str, level)
+    def flush(self):
+        self.original_stream.flush()
+
+def _run_auto_baidu(headless: bool = False) -> None:
+    global _job_running
+    done_pushed = False
+    try:
+        _stop_event.clear()
+
+        push_log("🚀 [Bước 1/3] Đang lấy gợi ý từ khóa mới từ Baidu (Scraper)...", "info")
+        import sys
+        _GETNEWKEYWORDS_DIR = BASE_DIR / "getnewkeywords"
+        if str(_GETNEWKEYWORDS_DIR) not in sys.path:
+            sys.path.insert(0, str(_GETNEWKEYWORDS_DIR))
+            
+        from auto_browser_scraper import run as getnewkeywords_run
+        
+        original_stdout = sys.stdout
+        sys.stdout = WSStream(original_stdout)
+        try:
+            # Reset global interrupted state in scraper just in case
+            import auto_browser_scraper
+            auto_browser_scraper.interrupted = False
+            new_kws = getnewkeywords_run() or set()
+        finally:
+            sys.stdout = original_stdout
+
+        if _stop_event.is_set() or auto_browser_scraper.interrupted:
+            push_log("⏹ Đã dừng theo yêu cầu.", "warning")
+            return
+
+        if not new_kws:
+            push_log("⚠️ Không lấy được từ khóa gợi ý nào mới (hoặc đã trùng hết).", "warning")
+            push_done(0, 0, 0, 0)
+            done_pushed = True
+            return
+
+        keywords_list = sorted(list(new_kws))
+        push_log(f"✅ Đã lấy gợi ý thành công! Nhận được {len(keywords_list)} từ khóa mới.", "success")
+        
+        # Step 2: Write to json and Excel
+        push_log("📝 [Bước 2/3] Đang cập nhật từ khóa gợi ý vào bảng...", "info")
+        new_rows = []
+        for i, kw in enumerate(keywords_list, 1):
+            new_rows.append({
+                "stt": i,
+                "keyword": kw,
+                "title": "",
+                "domain": "",
+                "time_tag": "",
+                "main_title": ""
+            })
+        write_data({"rows": new_rows})
+        
+        try:
+            from utils import write_keywords_to_excel
+            write_keywords_to_excel(keywords_list)
+        except Exception as ex:
+            push_log(f"⚠️ Không thể lưu đồng bộ vào Excel: {ex}", "warning")
+
+        # Refresh the UI grid rows
+        push({"type": "refresh_data", "rows": new_rows})
+        
+        # Step 3: Baidu search
+        push_log(f"🔍 [Bước 3/3] Đang tự động tìm kiếm Baidu cho {len(keywords_list)} từ khóa mới...", "info")
+        
+        kw_to_idx = {kw.strip(): i for i, kw in enumerate(keywords_list)}
+        save_counter = [0]
+        
+        def on_progress(idx: int, total: int, kw: str) -> None:
+            push_progress(idx, total, kw)
+
+        def on_result(idx: int, kw: str, result: tuple) -> None:
+            title, domain, time_tag, *_ = result
+            row_idx = kw_to_idx.get(kw.strip(), -1)
+            push_result(row_idx, kw, result)
+            if row_idx >= 0 and row_idx < len(new_rows):
+                new_rows[row_idx]["title"] = title or ""
+                new_rows[row_idx]["domain"] = domain or ""
+                new_rows[row_idx]["time_tag"] = time_tag or ""
+            save_counter[0] += 1
+            if save_counter[0] % 10 == 0:
+                write_data({"rows": new_rows})
+
+        from search_keywords import search_keywords as _fn
+        _fn(keywords_list, on_progress=on_progress, on_result=on_result, stop_event=_stop_event,
+            headless=headless, location="default")
+            
+        write_data({"rows": new_rows})
+        
+        success = sum(1 for r in new_rows if r.get("title") and not str(r.get("title", "")).startswith("Lỗi") and r.get("title") != "Trùng lặp từ khóa")
+        errors = sum(1 for r in new_rows if str(r.get("title", "")).startswith("Lỗi"))
+        dupes = sum(1 for r in new_rows if r.get("title") == "Trùng lặp từ khóa")
+        push_done(success, errors, dupes, len(keywords_list))
+        done_pushed = True
+
+    except Exception as e:
+        push_log(f"❌ Lỗi trong luồng tự động: {e}", "error")
+    finally:
+        _job_running = False
+        if not done_pushed:
+            push_done(0, 0, 0, 0)
+
 def _run_search(action: str, keywords: List[str], headless: bool = False, location: str = "default") -> None:
     global _job_running
+    done_pushed = False
     try:
-        _job_running = True
         _stop_event.clear()
 
         data = read_data()
@@ -331,11 +460,14 @@ def _run_search(action: str, keywords: List[str], headless: bool = False, locati
         errors = sum(1 for r in rows if str(r.get("title", "")).startswith("Lỗi"))
         dupes = sum(1 for r in rows if r.get("title") == "Trùng lặp từ khóa")
         push_done(success, errors, dupes, len(keywords))
+        done_pushed = True
 
     except Exception as e:
         push_log(f"❌ Lỗi nghiêm trọng: {e}", "error")
     finally:
         _job_running = False
+        if not done_pushed:
+            push_done(0, 0, 0, 0)
 
 class SearchRequest(BaseModel):
     headless: bool = False
@@ -346,20 +478,48 @@ async def api_search(action: str, req: SearchRequest = None):
     global _job_running
     if _job_running:
         raise HTTPException(409, "Đang có tác vụ chạy. Nhấn Dừng trước.")
+    
+    _job_running = True
+    headless = req.headless if req else False
+    mode = "ẩn Chrome" if headless else "hiện Chrome"
+
+    if action == "auto_baidu":
+        input_file = BASE_DIR / "input_keywords.txt"
+        if not input_file.exists():
+            _job_running = False
+            with open(input_file, 'w', encoding='utf-8') as f:
+                f.write("# Danh sách từ khóa cần lấy gợi ý từ Baidu (mỗi từ khóa một dòng)\n")
+            raise HTTPException(400, "Không tìm thấy từ khóa mới! Đã tạo file mẫu, vui lòng thêm từ khóa mới.")
+        
+        # Check if there are valid non-comment keywords
+        lines = [l.strip() for l in input_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+        words = [l for l in lines if not l.startswith("#")]
+        if not words:
+            _job_running = False
+            raise HTTPException(400, "Danh sách từ khóa mới đang trống! Vui lòng nhập từ khóa mới.")
+        
+        push_log(f"🚀 Bắt đầu Tự Động: Lấy gợi ý + Tìm kiếm Baidu ({mode})", "info")
+        threading.Thread(target=_run_auto_baidu, args=(headless,), daemon=True).start()
+        return {"ok": True, "total": 0}
+
     data = read_data()
     keywords = [r["keyword"] for r in data.get("rows", []) if r.get("keyword", "").strip()]
     if not keywords:
+        _job_running = False
         raise HTTPException(400, "Không có từ khóa để tìm kiếm")
-    headless = req.headless if req else False
     location = req.location if req else "default"
-    mode = "ẩn Chrome" if headless else "hiện Chrome"
-    push_log(f"🚀 Bắt đầu tìm kiếm [{action}] — {len(keywords)} từ khóa ({mode}, vị trí: {location})", "info")
+    push_log(f"🚀 Bắt đầu tìm kiếm [{action}] — {len(keywords)} từ khóa ({mode})", "info")
     threading.Thread(target=_run_search, args=(action, keywords, headless, location), daemon=True).start()
     return {"ok": True, "total": len(keywords)}
 
 @app.post("/api/stop")
 async def api_stop():
     _stop_event.set()
+    try:
+        import auto_browser_scraper
+        auto_browser_scraper.interrupted = True
+    except Exception:
+        pass
     push_log("⏹ Đang dừng tác vụ...", "warning")
     return {"ok": True}
 
