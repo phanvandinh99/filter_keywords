@@ -239,7 +239,7 @@ async def api_export():
 
 # ── Search actions ─────────────────────────────────────────────────────────────
 
-def _run_search(action: str, keywords: List[str]) -> None:
+def _run_search(action: str, keywords: List[str], headless: bool = False) -> None:
     global _job_running
     try:
         _job_running = True
@@ -265,7 +265,8 @@ def _run_search(action: str, keywords: List[str]) -> None:
             if save_counter[0] % 10 == 0:
                 write_data({"rows": rows})
 
-        kwargs = dict(on_progress=on_progress, on_result=on_result, stop_event=_stop_event)
+        kwargs = dict(on_progress=on_progress, on_result=on_result, stop_event=_stop_event,
+                      headless=headless)
 
         if action == "baidu":
             from search_keywords import search_keywords as _fn
@@ -292,8 +293,11 @@ def _run_search(action: str, keywords: List[str]) -> None:
     finally:
         _job_running = False
 
+class SearchRequest(BaseModel):
+    headless: bool = False
+
 @app.post("/api/search/{action}")
-async def api_search(action: str):
+async def api_search(action: str, req: SearchRequest = None):
     global _job_running
     if _job_running:
         raise HTTPException(409, "Đang có tác vụ chạy. Nhấn Dừng trước.")
@@ -301,8 +305,10 @@ async def api_search(action: str):
     keywords = [r["keyword"] for r in data.get("rows", []) if r.get("keyword", "").strip()]
     if not keywords:
         raise HTTPException(400, "Không có từ khóa để tìm kiếm")
-    push_log(f"🚀 Bắt đầu tìm kiếm [{action}] — {len(keywords)} từ khóa", "info")
-    threading.Thread(target=_run_search, args=(action, keywords), daemon=True).start()
+    headless = req.headless if req else False
+    mode = "ẩn Chrome" if headless else "hiện Chrome"
+    push_log(f"🚀 Bắt đầu tìm kiếm [{action}] — {len(keywords)} từ khóa ({mode})", "info")
+    threading.Thread(target=_run_search, args=(action, keywords, headless), daemon=True).start()
     return {"ok": True, "total": len(keywords)}
 
 @app.post("/api/stop")

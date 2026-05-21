@@ -466,8 +466,13 @@ function setRunning(v) {
 async function runSearch(action) {
   if (isRunning) return;
   setRunning(true);
+  const headless = document.getElementById('chk-headless').checked;
   try {
-    const res = await fetch('/api/search/' + action, { method: 'POST' });
+    const res = await fetch('/api/search/' + action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ headless }),
+    });
     if (!res.ok) {
       const err = await res.json();
       toast(err.detail || 'Lỗi', 'error');

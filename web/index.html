@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Keyword Tool</title>
-<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="stylesheet" href="/static/style.css?v=4">
 <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.2/dist/ag-grid-community.min.js"></script>
 </head>
 <body>
@@ -16,30 +16,31 @@
 </div>
 
 <div id="toolbar">
-  <button class="btn" id="btn-dedup">🧹 Trùng lặp</button>
-  <button class="btn danger" id="btn-banned">🚫 Từ cấm</button>
+  <button class="btn" id="btn-dedup" title="Loại bỏ các từ khóa trùng lặp trong danh sách">🧹 Trùng lặp</button>
+  <button class="btn danger" id="btn-banned" title="Lọc và xóa các từ khóa chứa từ cấm">🚫 Từ cấm</button>
   <div class="sep"></div>
-  <button class="btn primary" id="btn-baidu">🔍 Baidu</button>
-  <button class="btn primary" id="btn-baidu-detail">🔍 Baidu CT</button>
-  <button class="btn primary" id="btn-google">🌐 Google</button>
-  <button class="btn primary" id="btn-sogou">🔎 Sogou</button>
-  <button class="btn stop" id="btn-stop" style="display:none">■ Dừng</button>
+  <button class="btn primary" id="btn-baidu" title="Tìm kiếm từ khóa trên Baidu (chế độ nhanh)">🔍 Baidu</button>
+  <button class="btn primary" id="btn-baidu-detail" title="Tìm kiếm từ khóa trên Baidu (chế độ chi tiết, chính xác hơn, click tìm kiếm 3 lần liên tiếp)">🔍 Baidu CT</button>
+  <button class="btn primary" id="btn-google" title="Tìm kiếm từ khóa trên Google">🌐 Google</button>
+  <button class="btn primary" id="btn-sogou" title="Tìm kiếm từ khóa trên Sogou">🔎 Sogou</button>
+  <label class="chk-headless" title="Ẩn trình duyệt Chrome khi tìm kiếm (headless mode)"><input type="checkbox" id="chk-headless"> Ẩn Chrome</label>
+  <button class="btn stop" id="btn-stop" style="display:none" title="Dừng quá trình tìm kiếm đang chạy">■ Dừng</button>
   <div class="sep"></div>
-  <button class="btn" id="btn-import">📥 Import</button>
-  <button class="btn success" id="btn-export">📤 Export</button>
-  <button class="btn" id="btn-edit-banned">✏️ Từ cấm</button>
-  <button class="btn" id="btn-settings">⚙️ Cài đặt</button>
+  <button class="btn" id="btn-import" title="Import danh sách từ khóa từ file Excel (.xlsx)">📥 Import</button>
+  <button class="btn success" id="btn-export" title="Xuất kết quả ra file Excel (.xlsx)">📤 Export</button>
+  <button class="btn" id="btn-edit-banned" title="Mở danh sách từ cấm để chỉnh sửa">✏️ Từ cấm</button>
+  <button class="btn" id="btn-settings" title="Cài đặt đường dẫn Chrome và Profile">⚙️ Cài đặt</button>
   <div class="sep"></div>
-  <button class="btn" id="btn-save">💾 Lưu</button>
-  <button class="btn" id="btn-clear-results">🗑 Xóa KQ</button>
+  <button class="btn" id="btn-save" title="Lưu toàn bộ dữ liệu hiện tại">💾 Lưu</button>
+  <button class="btn" id="btn-clear-results" title="Xóa cột kết quả (Title, Domain, Thời Gian) nhưng giữ từ khóa">🗑 Xóa KQ</button>
   <input type="file" id="file-input" accept=".xlsx" style="display:none">
   <span class="kw-count" id="kw-count">0 từ khóa</span>
   <span class="row-count" id="row-count">0 dòng</span>
 </div>
 
 <div id="quick-add">
-  <button class="btn danger" id="btn-del-row">🗑 Xóa dòng</button>
-  <button class="btn" id="btn-clear-all">↺ Reset cột</button>
+  <button class="btn danger" id="btn-del-row" title="Xóa các dòng đang được chọn (checkbox)">🗑 Xóa dòng</button>
+  <button class="btn" id="btn-clear-all" title="Reset toàn bộ cột kết quả về trống">↺ Reset cột</button>
 </div>
 
 
@@ -103,6 +104,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=4"></script>
 </body>
 </html>

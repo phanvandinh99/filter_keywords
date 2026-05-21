@@ -827,7 +827,7 @@ def _kill_all_chrome_on_profile(profile_path: str) -> None:
         time.sleep(2.0)  # buffer cho OS giải phóng profile lock
 
 
-def _launch_browser(p, use_temp_profile: bool = False):
+def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False):
     """Launch browser, trả về (browser, browser_context, browser_pid, temp_dir)."""
     _browser = None
     _browser_context = None
@@ -847,7 +847,7 @@ def _launch_browser(p, use_temp_profile: bool = False):
     try:
         _browser_context = p.chromium.launch_persistent_context(
             user_data_dir=profile_dir,
-            headless=False,
+            headless=headless,
             executable_path=CHROME_PATH,
             viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
             user_agent=BROWSER_CONFIG.get("user_agent"),
@@ -868,7 +868,7 @@ def _launch_browser(p, use_temp_profile: bool = False):
                 # Retry lần 2 với profile gốc sau khi đã dọn dẹp
                 _browser_context = p.chromium.launch_persistent_context(
                     user_data_dir=PROFILE_PATH,
-                    headless=False,
+                    headless=headless,
                     executable_path=CHROME_PATH,
                     viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
                     user_agent=BROWSER_CONFIG.get("user_agent"),
@@ -879,7 +879,7 @@ def _launch_browser(p, use_temp_profile: bool = False):
                 _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
                 _browser_context = p.chromium.launch_persistent_context(
                     user_data_dir=_temp_dir,
-                    headless=False,
+                    headless=headless,
                     executable_path=CHROME_PATH,
                     viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
                     user_agent=BROWSER_CONFIG.get("user_agent"),
@@ -960,7 +960,8 @@ def _close_browser(browser, browser_context, browser_pid, temp_dir=None) -> None
 
 
 def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
-                            on_progress=None, on_result=None, stop_event=None) -> None:
+                            on_progress=None, on_result=None, stop_event=None,
+                            headless: bool = False) -> None:
     """Hàm chung để tìm kiếm từ khóa (thông thường hoặc chi tiết)"""
     if not keywords:
         logger.error("❌ Không có từ khóa để tìm kiếm!")
@@ -983,7 +984,9 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
 
         try:
             p = sync_playwright().start()
-            browser, browser_context, _browser_pid, _temp_dir = _launch_browser(p)
+            mode_label = 'headless' if headless else 'visible'
+            logger.info(f"[🌐] Khởi động Chrome ({mode_label})")
+            browser, browser_context, _browser_pid, _temp_dir = _launch_browser(p, headless=headless)
 
             page = browser_context.new_page()
             recent_responses, recent_failed_requests, recent_console = _setup_debug_handlers(page)
@@ -1169,13 +1172,17 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
         logger.info("[ℹ️] Không có kết quả để ghi.")
 
 
-def search_keywords(keywords: List[str], on_progress=None, on_result=None, stop_event=None) -> None:
+def search_keywords(keywords: List[str], on_progress=None, on_result=None, stop_event=None,
+                    headless: bool = False) -> None:
     """Tìm kiếm từ khóa trên Baidu (thông thường)"""
     _search_keywords_common(keywords, is_detailed=False,
-                            on_progress=on_progress, on_result=on_result, stop_event=stop_event)
+                            on_progress=on_progress, on_result=on_result, stop_event=stop_event,
+                            headless=headless)
 
 
-def search_keywords_detailed(keywords: List[str], on_progress=None, on_result=None, stop_event=None) -> None:
+def search_keywords_detailed(keywords: List[str], on_progress=None, on_result=None, stop_event=None,
+                             headless: bool = False) -> None:
     """Tìm kiếm từ khóa trên Baidu với chi tiết (nhấn button 3 lần)"""
     _search_keywords_common(keywords, is_detailed=True,
-                            on_progress=on_progress, on_result=on_result, stop_event=stop_event)
+                            on_progress=on_progress, on_result=on_result, stop_event=stop_event,
+                            headless=headless)
