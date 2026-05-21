@@ -196,3 +196,47 @@ MOBILE_USER_AGENTS = [
     "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36",
     "Mozilla/5.0 (Linux; Android 13; SM-A546B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Mobile Safari/537.36",
 ]
+
+LOCATION_PROFILES = {
+    "default": {
+        "name": "Mặc định",
+        "hl": None,
+        "gl": None,
+        "locale": None,
+        "timezone_id": None,
+        "geolocation": None,
+    },
+    "vn": {
+        "name": "Việt Nam",
+        "hl": "vi",
+        "gl": "vn",
+        "locale": "vi-VN",
+        "timezone_id": "Asia/Ho_Chi_Minh",
+        "geolocation": {"latitude": 21.0285, "longitude": 105.8048, "accuracy": 1000},
+    },
+    "cn": {
+        "name": "Trung Quốc",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "locale": "zh-CN",
+        "timezone_id": "Asia/Shanghai",
+        "geolocation": {"latitude": 39.9042, "longitude": 116.4074, "accuracy": 1000},
+    },
+    "us": {
+        "name": "Mỹ",
+        "hl": "en",
+        "gl": "us",
+        "locale": "en-US",
+        "timezone_id": "America/New_York",
+        "geolocation": {"latitude": 40.7128, "longitude": -74.0060, "accuracy": 1000},
+    },
+    "jp": {
+        "name": "Nhật Bản",
+        "hl": "ja",
+        "gl": "jp",
+        "locale": "ja-JP",
+        "timezone_id": "Asia/Tokyo",
+        "geolocation": {"latitude": 35.6762, "longitude": 139.6503, "accuracy": 1000},
+    }
+}
+

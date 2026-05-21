@@ -463,6 +463,23 @@ function setRunning(v) {
     document.getElementById(id).disabled = v);
 }
 
+async function loadIpInfo() {
+  const badge = document.getElementById('ip-badge');
+  if (!badge) return;
+  try {
+    const res = await fetch('/api/ip-info');
+    if (res.ok) {
+      const data = await res.json();
+      badge.textContent = `🌐 IP: ${data.ip} (${data.country})`;
+      badge.title = `Địa chỉ IP hiện tại của bạn: ${data.ip}\nQuốc gia: ${data.country}`;
+    } else {
+      badge.textContent = '🌐 Lỗi lấy IP';
+    }
+  } catch (e) {
+    badge.textContent = '🌐 Lỗi lấy IP';
+  }
+}
+
 async function runSearch(action) {
   if (isRunning) return;
   setRunning(true);
@@ -625,6 +642,7 @@ function toast(msg, type = 'info') {
 applyTheme(currentTheme);
 initGrid();
 connectWS();
+loadIpInfo();
 
 // ── Cell Selection (kiểu Excel) ───────────────────────────────
 const selectedCells = new Set();  // Set<"rowIndex:colId">

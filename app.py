@@ -175,6 +175,50 @@ async def api_save_banned(body: Dict[str, str]):
     BANNED_FILE.write_text(body.get("content", ""), encoding="utf-8")
     return {"ok": True}
 
+@app.get("/api/ip-info")
+def api_ip_info():
+    import urllib.request
+    import json
+    
+    sources = [
+        ("https://api.ip.sb/geoip", lambda d: (d.get("ip"), d.get("country_code"), d.get("country"))),
+        ("http://ip-api.com/json", lambda d: (d.get("query"), d.get("countryCode"), d.get("country"))),
+        ("https://ipapi.co/json/", lambda d: (d.get("ip"), d.get("country_code"), d.get("country_name")))
+    ]
+    
+    country_code_map = {
+        "VN": "Việt Nam", "US": "Mỹ", "CN": "Trung Quốc", "JP": "Nhật Bản",
+        "KR": "Hàn Quốc", "KP": "Triều Tiên", "SG": "Singapore", "TH": "Thái Lan",
+        "MY": "Malaysia", "PH": "Philippines", "ID": "Indonesia", "KH": "Campuchia",
+        "LA": "Lào", "MM": "Myanmar", "HK": "Hồng Kông", "TW": "Đài Loan",
+        "GB": "Anh Quốc", "FR": "Pháp", "DE": "Đức", "IT": "Ý", "RU": "Nga",
+        "AU": "Úc", "CA": "Canada", "IN": "Ấn Độ", "BR": "Brazil", "ES": "Tây Ban Nha",
+        "PT": "Bồ Đào Nha", "NL": "Hà Lan", "BE": "Bỉ", "CH": "Thụy Sĩ",
+        "SE": "Thụy Điển", "NO": "Na Uy", "DK": "Đan Mạch", "FI": "Phần Lan",
+        "PL": "Ba Lan", "UA": "Ukraine", "GR": "Hy Lạp", "TR": "Thổ Nhĩ Kỳ",
+        "ZA": "Nam Phi", "NZ": "New Zealand", "IE": "Ireland", "AT": "Áo",
+        "MX": "Mexico", "AR": "Argentina", "CL": "Chile", "CO": "Colombia",
+        "PE": "Peru", "SA": "Ả Rập Xê Út", "AE": "UAE", "IL": "Israel", "EG": "Ai Cập",
+        "MO": "Macao", "PK": "Pakistan", "BD": "Bangladesh", "LK": "Sri Lanka",
+        "KZ": "Kazakhstan", "UZ": "Uzbekistan", "RO": "Romania", "HU": "Hungary",
+        "CZ": "Cộng hòa Séc", "SK": "Slovakia", "HR": "Croatia", "BG": "Bulgaria"
+    }
+    
+    for url, parser in sources:
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=3) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                ip, country_code, country = parser(data)
+                if ip:
+                    code_upper = country_code.upper() if country_code else ""
+                    country_vn = country_code_map.get(code_upper, country or "Không rõ")
+                    return {"ip": ip, "country": country_vn}
+        except Exception:
+            continue
+            
+    return {"ip": "Không thể lấy IP", "country": "Không rõ"}
+
 # ── Settings ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/settings")
@@ -239,7 +283,7 @@ async def api_export():
 
 # ── Search actions ─────────────────────────────────────────────────────────────
 
-def _run_search(action: str, keywords: List[str], headless: bool = False) -> None:
+def _run_search(action: str, keywords: List[str], headless: bool = False, location: str = "default") -> None:
     global _job_running
     try:
         _job_running = True
@@ -266,7 +310,7 @@ def _run_search(action: str, keywords: List[str], headless: bool = False) -> Non
                 write_data({"rows": rows})
 
         kwargs = dict(on_progress=on_progress, on_result=on_result, stop_event=_stop_event,
-                      headless=headless)
+                      headless=headless, location=location)
 
         if action == "baidu":
             from search_keywords import search_keywords as _fn
@@ -295,6 +339,7 @@ def _run_search(action: str, keywords: List[str], headless: bool = False) -> Non
 
 class SearchRequest(BaseModel):
     headless: bool = False
+    location: str = "default"
 
 @app.post("/api/search/{action}")
 async def api_search(action: str, req: SearchRequest = None):
@@ -306,9 +351,10 @@ async def api_search(action: str, req: SearchRequest = None):
     if not keywords:
         raise HTTPException(400, "Không có từ khóa để tìm kiếm")
     headless = req.headless if req else False
+    location = req.location if req else "default"
     mode = "ẩn Chrome" if headless else "hiện Chrome"
-    push_log(f"🚀 Bắt đầu tìm kiếm [{action}] — {len(keywords)} từ khóa ({mode})", "info")
-    threading.Thread(target=_run_search, args=(action, keywords, headless), daemon=True).start()
+    push_log(f"🚀 Bắt đầu tìm kiếm [{action}] — {len(keywords)} từ khóa ({mode}, vị trí: {location})", "info")
+    threading.Thread(target=_run_search, args=(action, keywords, headless, location), daemon=True).start()
     return {"ok": True, "total": len(keywords)}
 
 @app.post("/api/stop")

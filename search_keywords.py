@@ -28,6 +28,7 @@ from constants import (
     MID_PATTERNS,
     BROWSER_CONFIG,
     TIMEOUTS,
+    LOCATION_PROFILES,
     DELAYS,
     SELECTORS,
     URLS,
@@ -827,12 +828,18 @@ def _kill_all_chrome_on_profile(profile_path: str) -> None:
         time.sleep(2.0)  # buffer cho OS giải phóng profile lock
 
 
-def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False):
+def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, location: str = "default"):
     """Launch browser, trả về (browser, browser_context, browser_pid, temp_dir)."""
     _browser = None
     _browser_context = None
     _browser_pid = None
     _temp_dir = None
+
+    loc_prof = LOCATION_PROFILES.get(location, LOCATION_PROFILES["default"])
+    locale = loc_prof.get("locale")
+    timezone_id = loc_prof.get("timezone_id")
+    geolocation = loc_prof.get("geolocation")
+    permissions = ["geolocation"] if geolocation else None
 
     if use_temp_profile:
         _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
@@ -851,6 +858,10 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False):
             executable_path=CHROME_PATH,
             viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
             user_agent=BROWSER_CONFIG.get("user_agent"),
+            locale=locale,
+            timezone_id=timezone_id,
+            geolocation=geolocation,
+            permissions=permissions,
         )
         logger.info(f"   ✅ Persistent context: {'profile tạm' if _temp_dir else 'profile gốc'}")
     except Exception as exc:
@@ -872,6 +883,10 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False):
                     executable_path=CHROME_PATH,
                     viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
                     user_agent=BROWSER_CONFIG.get("user_agent"),
+                    locale=locale,
+                    timezone_id=timezone_id,
+                    geolocation=geolocation,
+                    permissions=permissions,
                 )
                 logger.info("   ✅ Retry thành công với profile gốc")
             except Exception as exc2:
@@ -883,6 +898,10 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False):
                     executable_path=CHROME_PATH,
                     viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
                     user_agent=BROWSER_CONFIG.get("user_agent"),
+                    locale=locale,
+                    timezone_id=timezone_id,
+                    geolocation=geolocation,
+                    permissions=permissions,
                 )
                 logger.info(f"   ✅ Dùng profile tạm: {_temp_dir}")
         else:
@@ -961,7 +980,7 @@ def _close_browser(browser, browser_context, browser_pid, temp_dir=None) -> None
 
 def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
                             on_progress=None, on_result=None, stop_event=None,
-                            headless: bool = False) -> None:
+                            headless: bool = False, location: str = "default") -> None:
     """Hàm chung để tìm kiếm từ khóa (thông thường hoặc chi tiết)"""
     if not keywords:
         logger.error("❌ Không có từ khóa để tìm kiếm!")
@@ -985,8 +1004,8 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
         try:
             p = sync_playwright().start()
             mode_label = 'headless' if headless else 'visible'
-            logger.info(f"[🌐] Khởi động Chrome ({mode_label})")
-            browser, browser_context, _browser_pid, _temp_dir = _launch_browser(p, headless=headless)
+            logger.info(f"[🌐] Khởi động Chrome ({mode_label}, vị trí: {location})")
+            browser, browser_context, _browser_pid, _temp_dir = _launch_browser(p, headless=headless, location=location)
 
             page = browser_context.new_page()
             recent_responses, recent_failed_requests, recent_console = _setup_debug_handlers(page)
@@ -1173,16 +1192,16 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
 
 
 def search_keywords(keywords: List[str], on_progress=None, on_result=None, stop_event=None,
-                    headless: bool = False) -> None:
+                    headless: bool = False, location: str = "default") -> None:
     """Tìm kiếm từ khóa trên Baidu (thông thường)"""
     _search_keywords_common(keywords, is_detailed=False,
                             on_progress=on_progress, on_result=on_result, stop_event=stop_event,
-                            headless=headless)
+                            headless=headless, location=location)
 
 
 def search_keywords_detailed(keywords: List[str], on_progress=None, on_result=None, stop_event=None,
-                             headless: bool = False) -> None:
+                             headless: bool = False, location: str = "default") -> None:
     """Tìm kiếm từ khóa trên Baidu với chi tiết (nhấn button 3 lần)"""
     _search_keywords_common(keywords, is_detailed=True,
                             on_progress=on_progress, on_result=on_result, stop_event=stop_event,
-                            headless=headless)
+                            headless=headless, location=location)

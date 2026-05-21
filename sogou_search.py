@@ -23,6 +23,7 @@ from constants import (
     DEBUG_ARTIFACTS_MAX_RESPONSES,
     DEBUG_ARTIFACTS_MAX_FAILED_REQUESTS,
     DEBUG_ARTIFACTS_MAX_CONSOLE,
+    LOCATION_PROFILES,
 )
 
 logger = logging.getLogger()
@@ -564,7 +565,8 @@ def _process_sogou_keyword(
         return (error_msg, "", "", False, "", "")
 
 
-def search_sogou_keywords(keywords: List[str], on_progress=None, on_result=None, stop_event=None) -> None:
+def search_sogou_keywords(keywords: List[str], on_progress=None, on_result=None, stop_event=None,
+                          headless: bool = False, location: str = "default") -> None:
     """Tìm kiếm từ khóa trên Sogou (sogou.com)"""
     if not keywords:
         logger.error("❌ Không có từ khóa để tìm kiếm trên Sogou!")
@@ -573,12 +575,23 @@ def search_sogou_keywords(keywords: List[str], on_progress=None, on_result=None,
     results = []
     processed_keywords: set = set()
 
+    loc_prof = LOCATION_PROFILES.get(location, LOCATION_PROFILES["default"])
+    locale = loc_prof.get("locale")
+    timezone_id = loc_prof.get("timezone_id")
+    geolocation = loc_prof.get("geolocation")
+    permissions = ["geolocation"] if geolocation else None
+
     with sync_playwright() as p:
         browser_context = p.chromium.launch_persistent_context(
             user_data_dir=PROFILE_PATH,
-            headless=False,
+            headless=headless,
             executable_path=CHROME_PATH,
-            **SOGOU_BROWSER_CONFIG,
+            viewport=SOGOU_BROWSER_CONFIG.get("viewport", {"width": 1280, "height": 800}),
+            user_agent=SOGOU_BROWSER_CONFIG.get("user_agent"),
+            locale=locale,
+            timezone_id=timezone_id,
+            geolocation=geolocation,
+            permissions=permissions,
         )
 
         page = browser_context.new_page()
