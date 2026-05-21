@@ -342,16 +342,25 @@ def _is_blocked_source(container: Any) -> bool:
 
 def _is_blocked_domain(domain: str) -> bool:
     """Kiểm tra domain có nằm trong danh sách bị chặn không.
-    Dùng exact-domain match: chỉ block chính xác domain được liệt kê.
-    Lưu ý: không còn dùng suffix match nữa (để không block nhầm haokan.baidu.com etc.)
+    Hỗ trợ 2 loại match:
+      - Exact match: entry không có dấu '.' ở đầu → chỉ block chính xác domain đó.
+      - Suffix match: entry có dấu '.' ở đầu (vd: ".baidu.com") → block tất cả
+        subdomain của domain đó (vd: baijiahao.baidu.com, tieba.baidu.com...).
     """
     if not domain:
         return False
     domain_lower = domain.lower().rstrip(".")
     for blocked in BLOCKED_DOMAINS:
         blocked_lower = blocked.lower()
-        if domain_lower == blocked_lower:
-            return True
+        if blocked_lower.startswith("."):
+            # Suffix match: domain kết thúc bằng suffix đó
+            suffix = blocked_lower  # vd: ".baidu.com"
+            if domain_lower == suffix[1:] or domain_lower.endswith(suffix):
+                return True
+        else:
+            # Exact match
+            if domain_lower == blocked_lower:
+                return True
     return False
 
 

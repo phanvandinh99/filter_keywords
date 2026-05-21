@@ -155,16 +155,17 @@ BLOCKED_SOURCES = [
 
 # ── Domain bị loại bỏ ──────────────────────────────────────────────────────────────────
 # Kết quả có domain thuộc danh sách này sẽ bị bỏ qua hoàn toàn (không giữ title, không lấy domain).
-# Chỉ liệt kê các trang điều hướng/nội bộ của Baidu mà không phải content website.
-# Lưu ý: Đây là exact-domain match, KHÔNG phải suffix match nữa.
+# Hỗ trợ 2 loại:
+#   - Exact match: "www.baidu.com" chỉ block đúng domain đó
+#   - Suffix match (thêm dấu . ở đầu): ".baidu.com" block tất cả subdomain của baidu.com
+#     VÍ DỤ: ".baidu.com" sẽ block baijiahao.baidu.com, tieba.baidu.com, v.v.
 BLOCKED_DOMAINS = [
-    # Trang chủ và tìm kiếm Baidu — không phải content website
-    "www.baidu.com",
-    "m.baidu.com",
+    # Tất cả subdomain của Baidu (baijiahao.baidu.com, tieba.baidu.com, v.v.)
     "baidu.com",
-    # Nếu muốn block thêm các subdomain khác, thêm vào đây:
-    # "tieba.baidu.com",
-    # "zhidao.baidu.com",
+    ".baidu.com",
+    # Game site — block tất cả subdomain của 3dmgame.com (app.3dmgame.com, v.v.)
+    "3dmgame.com",
+    ".3dmgame.com",
 ]
 
 # Debug settings
