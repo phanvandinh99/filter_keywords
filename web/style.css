@@ -91,7 +91,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);
   --ag-cell-horizontal-padding:5px;
 }
 .title-cell mark{background:none;color:var(--red);font-weight:600}
-.tag-pill{display:inline-block;padding:1px 7px;border-radius:12px;font-size:11px;font-weight:500}
+.tag-pill{display:inline-block;padding:0 5px;border-radius:8px;font-size:9.5px;font-weight:600;line-height:18px;white-space:nowrap}
 .tag-fresh{background:#dcfce7;color:#15803d}
 [data-theme="dark"] .tag-fresh{background:#14532d;color:#4ade80}
 .tag-today{background:#dbeafe;color:#1d4ed8}

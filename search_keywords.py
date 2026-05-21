@@ -39,6 +39,9 @@ from constants import (
     CAPTCHA_URL_PATTERNS,
     CAPTCHA_PAGE_TITLES,
     BLOCKED_DOMAINS,
+    NO_RESULT_MAX_RETRIES,
+    NO_RESULT_RETRY_DELAY_MIN,
+    NO_RESULT_RETRY_DELAY_MAX,
 )
 
 logger = logging.getLogger()
@@ -991,18 +994,81 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
                             counters["error"] += 1
                         break
 
-                result = _process_single_keyword(
-                    page, kw, idx, total, processed_keywords,
-                    recent_responses, recent_failed_requests, recent_console,
-                    is_detailed,
-                )
+                # ── Retry loop: thử lại từ khóa bị timeout/lỗi ──
+                result = None
+                max_retries = NO_RESULT_MAX_RETRIES
+                for attempt in range(1, max_retries + 1):
+                    # Xóa keyword khỏi processed_keywords nếu đang retry
+                    # (lần đầu thì chưa có, các lần sau thì cần xóa để không bị "Trùng lặp")
+                    if attempt > 1:
+                        processed_keywords.discard(kw)
 
-                # Xử lý captcha: người dùng đã bỏ qua (không giải)
-                if result[0] == "__CAPTCHA_SKIPPED__":
-                    logger.warning(f"[⏭] Người dùng bỏ qua captcha: {kw}")
-                    result = ("Lỗi: Bị captcha Baidu", "", "", False, "", "")
+                    # Lần cuối: chuyển sang tìm kiếm chi tiết (homepage → gõ → search)
+                    use_detailed = is_detailed or (attempt == max_retries)
+                    if attempt == max_retries and not is_detailed:
+                        logger.info(
+                            f"[🔄] Retry {attempt}/{max_retries} cho '{kw}' "
+                            f"— chuyển sang tìm kiếm chi tiết"
+                        )
 
-                # Gọi on_result ngay sau khi có kết quả
+                    result = _process_single_keyword(
+                        page, kw, idx, total, processed_keywords,
+                        recent_responses, recent_failed_requests, recent_console,
+                        use_detailed,
+                    )
+
+                    # Xử lý captcha: người dùng đã bỏ qua (không giải)
+                    if result[0] == "__CAPTCHA_SKIPPED__":
+                        logger.warning(f"[⏭] Người dùng bỏ qua captcha: {kw}")
+                        result = ("Lỗi: Bị captcha Baidu", "", "", False, "", "")
+                        break  # Captcha → không retry
+
+                    # Kiểm tra kết quả có phải lỗi timeout/tải trang không
+                    is_retryable_error = (
+                        result[0].startswith("Lỗi") and
+                        result[0] != "Trùng lặp từ khóa"
+                    )
+
+                    if is_retryable_error and attempt < max_retries:
+                        retry_delay = random.uniform(
+                            NO_RESULT_RETRY_DELAY_MIN,
+                            NO_RESULT_RETRY_DELAY_MAX,
+                        )
+                        logger.warning(
+                            f"[🔄] Retry {attempt}/{max_retries} cho '{kw}' "
+                            f"(lỗi: {result[0]}) — chờ {retry_delay:.1f}s"
+                        )
+                        time.sleep(retry_delay)
+
+                        # Khôi phục page trước khi retry
+                        _page_ok = False
+                        try:
+                            _ = page.url
+                            page.evaluate("1")
+                            _page_ok = True
+                        except Exception:
+                            _page_ok = False
+
+                        if not _page_ok:
+                            logger.warning(f"[⚠️] Page chết trước retry – tạo page mới")
+                            try:
+                                page = browser_context.new_page()
+                                recent_responses, recent_failed_requests, recent_console = _setup_debug_handlers(page)
+                                logger.info("[✅] Đã tạo page mới cho retry")
+                            except Exception as e:
+                                logger.error(f"[❌] Không thể tạo page mới cho retry: {e}")
+                                break  # Không thể retry, giữ kết quả lỗi hiện tại
+                        continue  # Retry lại từ khóa
+                    else:
+                        # Thành công hoặc hết retry
+                        if is_retryable_error and attempt == max_retries:
+                            logger.error(
+                                f"[❌] Đã hết {max_retries} lần retry cho '{kw}' "
+                                f"– lỗi cuối: {result[0]}"
+                            )
+                        break
+
+                # Gọi on_result ngay sau khi có kết quả cuối cùng
                 if on_result:
                     on_result(idx, kw, result)
 

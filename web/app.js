@@ -1,5 +1,12 @@
 "use strict";
 
+// [DEBUG] Bắt Ctrl+A ở mức window capture — xóa sau khi debug xong
+window.addEventListener('keydown', e => {
+  if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
+    console.log('[WINDOW Ctrl+A]', { key: e.key, target: e.target, tagName: e.target?.tagName, id: e.target?.id });
+  }
+}, true);
+
 // ── Theme ──────────────────────────────────────────────────────
 let currentTheme = localStorage.getItem('kw-theme') || 'light';
 
@@ -84,7 +91,7 @@ const COL_DEFS = [
     editable: true, sortable: true, filter: true,
   },
   {
-    field: 'time_tag', headerName: 'Thời Gian', width: 115,
+    field: 'time_tag', headerName: 'Thời Gian', width: 90,
     editable: true, sortable: true, filter: true,
     cellRenderer: tagCell,
   },
@@ -331,6 +338,21 @@ document.addEventListener('click', e => { gridHasFocus = gridEl.contains(e.targe
 
 // Global keydown — chặn browser xử lý Delete khi grid đang focus
 document.addEventListener('keydown', e => {
+  // Debug Ctrl+A
+  if (e.key === 'a' && e.ctrlKey) {
+    const activeTag = document.activeElement?.tagName;
+    const isEditing = !!document.querySelector('.ag-cell-inline-editing');
+    console.log('[Ctrl+A Debug]', {
+      gridHasFocus,
+      activeTag,
+      activeElement: document.activeElement,
+      isEditing,
+      key: e.key,
+      ctrlKey: e.ctrlKey,
+      shiftKey: e.shiftKey,
+    });
+  }
+
   if (!gridHasFocus) return;
   const activeTag = document.activeElement?.tagName;
   if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
@@ -351,6 +373,9 @@ document.addEventListener('keydown', e => {
     e.preventDefault(); selectToEndOfColumn('down');
   } else if (e.key === 'ArrowUp' && e.ctrlKey && e.shiftKey) {
     e.preventDefault(); selectToEndOfColumn('up');
+  } else if (e.key === 'a' && e.ctrlKey && !e.shiftKey) {
+    console.log('[Ctrl+A] → selectAll() called');
+    e.preventDefault(); gridApi.selectAll();
   }
 }, true);
 
