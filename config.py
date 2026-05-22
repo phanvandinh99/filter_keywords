@@ -6,7 +6,7 @@ import os
 # ── Chrome profile ────────────────────────────────────────────
 PROFILE_PATH = os.environ.get(
     "PROFILE_PATH",
-    r"C:\Users\DINH\AppData\Local\Google\Chrome\User Data\Profile 9",
+    r"C:\Users\TenMay\AppData\Local\Google\Chrome\User Data\Profile 1",
 )
 CHROME_PATH = os.environ.get(
     "CHROME_PATH",

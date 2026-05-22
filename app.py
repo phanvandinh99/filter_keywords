@@ -339,15 +339,34 @@ class SettingsRequest(BaseModel):
 
 @app.post("/api/settings")
 async def api_save_settings(req: SettingsRequest):
+    # 1. Update config.py on disk safely using lambda to avoid backslash escaping issues (e.g. \U in Windows path)
     cfg_path = BASE_DIR / "config.py"
     content = cfg_path.read_text(encoding="utf-8")
     content = re.sub(
         r'(PROFILE_PATH\s*=\s*os\.environ\.get\(\s*"PROFILE_PATH",\s*)r"[^"]*"',
-        f'\\1r"{req.profile_path}"', content)
+        lambda m: f'{m.group(1)}r"{req.profile_path}"', content)
     content = re.sub(
         r'(CHROME_PATH\s*=\s*os\.environ\.get\(\s*"CHROME_PATH",\s*)r"[^"]*"',
-        f'\\1r"{req.chrome_path}"', content)
+        lambda m: f'{m.group(1)}r"{req.chrome_path}"', content)
     cfg_path.write_text(content, encoding="utf-8")
+
+    # 2. Update variables in memory for the currently running server process
+    import sys
+    import config
+    config.PROFILE_PATH = req.profile_path
+    config.CHROME_PATH = req.chrome_path
+
+    # Propagate changes to other loaded modules that imported them at startup
+    modules_to_update = ["search_keywords", "google_search", "sogou_search", "domain_extractor", "debug_domain"]
+    for mod_name in modules_to_update:
+        if mod_name in sys.modules:
+            mod = sys.modules[mod_name]
+            if hasattr(mod, "PROFILE_PATH"):
+                mod.PROFILE_PATH = req.profile_path
+            if hasattr(mod, "CHROME_PATH"):
+                mod.CHROME_PATH = req.chrome_path
+
+    push_log(f"⚙️ Đã cập nhật cấu hình Chrome thành công! Cửa sổ tìm kiếm sẽ sử dụng đường dẫn mới.", "success")
     return {"ok": True}
 
 # ── Import / Export ────────────────────────────────────────────────────────────
