@@ -34,6 +34,31 @@ let ws = null;
 let isRunning = false;
 let gridHasFocus = false;
 
+/**
+ * Giải phóng focus khỏi grid trước khi mở modal.
+ * Dừng editing, bỏ chọn ô, reset flag gridHasFocus.
+ * Sau đó auto-focus vào phần tử đầu tiên có thể nhập trong modal.
+ */
+function openModal(modalId, focusSelector) {
+  // Dừng editing và giải phóng focus khỏi grid
+  try { gridApi?.stopEditing(true); } catch {}
+  gridHasFocus = false;
+  // Blur element đang focus để trình duyệt không giữ focus trên grid
+  if (document.activeElement && document.activeElement !== document.body) {
+    document.activeElement.blur();
+  }
+  // Mở modal
+  document.getElementById(modalId).classList.add('open');
+  // Auto-focus phần tử chỉ định (hoặc input/textarea đầu tiên trong modal)
+  requestAnimationFrame(() => {
+    const modal = document.getElementById(modalId);
+    const target = focusSelector
+      ? modal.querySelector(focusSelector)
+      : modal.querySelector('input:not([type=checkbox]), textarea');
+    target?.focus();
+  });
+}
+
 
 // ── Cell renderers ─────────────────────────────────────────────
 function kwCell(p) {
@@ -462,7 +487,7 @@ function setRunning(v) {
     if (el) el.disabled = v;
   });
   document.getElementById('btn-stop').style.display = v ? '' : 'none';
-  ['btn-dedup','btn-banned','btn-import','btn-edit-banned','btn-edit-seed','btn-settings','btn-save','btn-clear-results','btn-clear-all','btn-del-row'].forEach(id => {
+  ['btn-dedup','btn-banned','btn-import','btn-edit-seed','btn-settings','btn-save','btn-clear-results','btn-clear-all','btn-del-row'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.disabled = v;
   });
@@ -526,14 +551,101 @@ document.getElementById('btn-dedup').onclick = async () => {
   toast(`Đã xóa ${d.removed} trùng lặp`, 'success');
 };
 
-document.getElementById('btn-banned').onclick = async () => {
-  if (!confirm('Xóa tất cả từ khóa chứa từ cấm?')) return;
-  const res = await fetch('/api/keywords/filter-banned', { method: 'POST' });
-  if (!res.ok) { toast('Lỗi', 'error'); return; }
-  const d = await res.json();
-  setGridDataEnsuringEmptyRow(d.rows);
-  toast(`Đã xóa ${d.removed} từ khóa`, 'success');
+document.getElementById('btn-banned').onclick = () => {
+  // Lấy textarea hiện tại (giữ lại nội dung cũ nếu đã nhập)
+  openFilterWordsModal();
 };
+
+// ── Filter Words Modal ─────────────────────────────────────────
+function openFilterWordsModal() {
+  updateFilterPreview();
+  openModal('modal-filter-words', '#filter-words-content');
+}
+
+// Kiểm tra 1 row có khớp điều kiện không (xét tất cả trường)
+const FILTER_FIELDS = ['keyword', 'title', 'domain', 'time_tag', 'main_title'];
+
+function rowMatchesTerm(row, term) {
+  const lower = term.toLowerCase();
+  return FILTER_FIELDS.some(f => String(row[f] || '').toLowerCase().includes(lower));
+}
+
+// Tính toán preview: { kept, removed } dựa trên rules hiện tại
+function calcFilterResult(rules) {
+  const allRows = getAllRows().filter(r => r.keyword || r.title || r.domain || r.main_title);
+  if (!rules.length) return { kept: allRows.length, removed: 0, total: allRows.length };
+
+  const excludes = rules.filter(r => !r.startsWith('!')).map(r => r.trim()).filter(Boolean);
+  const includes = rules.filter(r => r.startsWith('!')).map(r => r.slice(1).trim()).filter(Boolean);
+
+  let kept = 0, removed = 0;
+  for (const row of allRows) {
+    // Nếu có bất kỳ từ exclude nào khớp → xóa dòng
+    const shouldExclude = excludes.some(term => rowMatchesTerm(row, term));
+    if (shouldExclude) { removed++; continue; }
+    // Nếu có điều kiện include (!abc) → chỉ giữ nếu khớp ít nhất 1
+    if (includes.length > 0) {
+      const matchesInclude = includes.some(term => rowMatchesTerm(row, term));
+      if (!matchesInclude) { removed++; continue; }
+    }
+    kept++;
+  }
+  return { kept, removed, total: allRows.length };
+}
+
+function parseFilterRules() {
+  const raw = document.getElementById('filter-words-content').value;
+  return raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+}
+
+function updateFilterPreview() {
+  const rules = parseFilterRules();
+  const preview = document.getElementById('filter-preview');
+  if (!rules.length) {
+    preview.textContent = '';
+    preview.className = 'filter-preview';
+    return;
+  }
+  const { kept, removed, total } = calcFilterResult(rules);
+  const excludes = rules.filter(r => !r.startsWith('!'));
+  const includes = rules.filter(r => r.startsWith('!'));
+  let html = `<span class="preview-stat">Tổng: <b>${total}</b></span>`;
+  if (excludes.length) html += `<span class="preview-remove">🗑 Xóa: <b>${removed}</b> dòng</span>`;
+  if (includes.length) html += `<span class="preview-keep">✅ Giữ lại: <b>${kept}</b> dòng</span>`;
+  preview.innerHTML = html;
+  preview.className = 'filter-preview visible';
+}
+
+// Live preview khi gõ
+document.getElementById('filter-words-content').addEventListener('input', updateFilterPreview);
+
+document.getElementById('btn-filter-words-cancel').onclick = () =>
+  document.getElementById('modal-filter-words').classList.remove('open');
+
+document.getElementById('btn-filter-words-apply').onclick = async () => {
+  const rules = parseFilterRules();
+  if (!rules.length) {
+    toast('Chưa nhập điều kiện lọc', 'info');
+    return;
+  }
+
+  const excludes = rules.filter(r => !r.startsWith('!')).map(r => r.trim()).filter(Boolean);
+  const includes = rules.filter(r => r.startsWith('!')).map(r => r.slice(1).trim()).filter(Boolean);
+
+  const allRows = getAllRows().filter(r => r.keyword || r.title || r.domain || r.main_title);
+  const filtered = allRows.filter(row => {
+    if (excludes.some(term => rowMatchesTerm(row, term))) return false;
+    if (includes.length > 0 && !includes.some(term => rowMatchesTerm(row, term))) return false;
+    return true;
+  });
+
+  const removed = allRows.length - filtered.length;
+  setGridDataEnsuringEmptyRow(filtered);
+  await saveData();
+  document.getElementById('modal-filter-words').classList.remove('open');
+  toast(`✅ Đã lọc xong — Xóa ${removed} dòng, còn lại ${filtered.length} dòng`, 'success');
+};
+
 
 document.getElementById('btn-save').onclick = async () => {
   try { await saveData(); toast('Đã lưu', 'success'); }
@@ -598,7 +710,7 @@ document.getElementById('btn-settings').onclick = async () => {
   const cfg = await r.json();
   document.getElementById('set-profile').value = cfg.profile_path || '';
   document.getElementById('set-chrome').value = cfg.chrome_path || '';
-  document.getElementById('modal-settings').classList.add('open');
+  openModal('modal-settings', '#set-profile');
 };
 document.getElementById('btn-settings-cancel').onclick = () =>
   document.getElementById('modal-settings').classList.remove('open');
@@ -616,30 +728,13 @@ document.getElementById('btn-settings-save').onclick = async () => {
   }
 };
 
-// ── Banned ─────────────────────────────────────────────────────
-document.getElementById('btn-edit-banned').onclick = async () => {
-  const r = await fetch('/api/banned');
-  const d = await r.json();
-  document.getElementById('banned-content').value = d.content || '';
-  document.getElementById('modal-banned').classList.add('open');
-};
-document.getElementById('btn-banned-cancel').onclick = () =>
-  document.getElementById('modal-banned').classList.remove('open');
-document.getElementById('btn-banned-save').onclick = async () => {
-  await fetch('/api/banned', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: document.getElementById('banned-content').value }),
-  });
-  document.getElementById('modal-banned').classList.remove('open');
-  toast('Đã lưu từ cấm', 'success');
-};
 
 // ── Seed Keywords ──────────────────────────────────────────────
 document.getElementById('btn-edit-seed').onclick = async () => {
   const r = await fetch('/api/seed');
   const d = await r.json();
   document.getElementById('seed-content').value = d.content || '';
-  document.getElementById('modal-seed').classList.add('open');
+  openModal('modal-seed', '#seed-content');
 };
 document.getElementById('btn-seed-cancel').onclick = () =>
   document.getElementById('modal-seed').classList.remove('open');
@@ -690,7 +785,7 @@ document.getElementById('btn-edit-kwfiles').onclick = async () => {
     document.querySelectorAll('.kwf-panel').forEach(p => p.classList.remove('active'));
     document.querySelector('.kwf-tab[data-tab="kwf-all"]').classList.add('active');
     document.getElementById('kwf-all').classList.add('active');
-    document.getElementById('modal-kwfiles').classList.add('open');
+    openModal('modal-kwfiles', '#kwf-all-content');
   } catch (e) {
     toast('Lỗi tải keyword files: ' + e.message, 'error');
   }

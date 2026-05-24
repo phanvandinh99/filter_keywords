@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Keyword Tool</title>
-<link rel="stylesheet" href="/static/style.css?v=7">
+<link rel="stylesheet" href="/static/style.css?v=8">
 <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.2/dist/ag-grid-community.min.js"></script>
 </head>
 <body>
@@ -20,7 +20,7 @@
 
 <div id="toolbar">
   <button class="btn" id="btn-dedup" title="Loại bỏ các từ khóa trùng lặp trong danh sách">🧹 Trùng lặp</button>
-  <button class="btn danger" id="btn-banned" title="Lọc và xóa các từ khóa chứa từ cấm">🚫 Từ cấm</button>
+  <button class="btn danger" id="btn-banned" title="Lọc và xóa các từ khóa chứa từ cấm">🚫 Bỏ bớt từ</button>
   <div class="sep"></div>
   <button class="btn primary" id="btn-baidu" title="Tìm kiếm từ khóa trên Baidu (chế độ nhanh)">🔍 Baidu</button>
   <button class="btn primary" id="btn-baidu-detail" title="Tìm kiếm từ khóa trên Baidu (chế độ chi tiết, chính xác hơn, click tìm kiếm 3 lần liên tiếp)">🔍 Baidu CT</button>
@@ -32,7 +32,6 @@
   <div class="sep"></div>
   <button class="btn" id="btn-import" title="Import danh sách từ khóa từ file Excel (.xlsx)">📥 Import</button>
   <button class="btn success" id="btn-export" title="Xuất kết quả ra file Excel (.xlsx)">📤 Export</button>
-  <button class="btn" id="btn-edit-banned" title="Mở danh sách từ cấm để chỉnh sửa">✏️ Từ cấm</button>
   <button class="btn" id="btn-edit-seed" title="Mở danh sách từ khóa mới (seed keywords) để lấy gợi ý từ Baidu">✏️ Từ khóa mới</button>
   <button class="btn" id="btn-edit-kwfiles" title="Chỉnh sửa keywords.txt và priority_titles.txt">📝 KW Files</button>
   <button class="btn" id="btn-settings" title="Cài đặt đường dẫn Chrome và Profile">⚙️ Cài đặt</button>
@@ -94,17 +93,19 @@
   </div>
 </div>
 
-<!-- Modal Banned -->
-<div class="modal-overlay" id="modal-banned">
+<!-- Modal Filter Words -->
+<div class="modal-overlay" id="modal-filter-words">
   <div class="modal">
-    <h2>🚫 Danh Sách Từ Cấm</h2>
+    <h2>🚫 Bỏ Bớt Từ</h2>
     <div class="form-group">
-      <label>Mỗi từ cấm một dòng</label>
-      <textarea id="banned-content" rows="10"></textarea>
+      <label>Áp dụng trên tất cả các cột</label>
+      <textarea id="filter-words-content" rows="10" placeholder="kaiyun => Loại
+!kaiyun => lấy"></textarea>
     </div>
+    <div id="filter-preview" class="filter-preview"></div>
     <div class="modal-footer">
-      <button class="btn" id="btn-banned-cancel">Hủy</button>
-      <button class="btn primary" id="btn-banned-save">Lưu</button>
+      <button class="btn" id="btn-filter-words-cancel">Hủy</button>
+      <button class="btn danger" id="btn-filter-words-apply">🚫 Áp dụng lọc</button>
     </div>
   </div>
 </div>
@@ -152,6 +153,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=7"></script>
+<script src="/static/app.js?v=8"></script>
 </body>
 </html>
