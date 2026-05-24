@@ -19,15 +19,15 @@
 </div>
 
 <div id="toolbar">
-  <button class="btn" id="btn-dedup" title="Loại bỏ các từ khóa trùng lặp trong danh sách">🧹 Trùng lặp</button>
-  <button class="btn danger" id="btn-banned" title="Lọc và xóa các từ khóa chứa từ cấm">🚫 Bỏ bớt từ</button>
+  <button class="btn" id="btn-dedup" title="Loại bỏ các từ khóa trùng lặp trong danh sách">🧹 Xóa rùng lặp</button>
+  <button class="btn danger" id="btn-banned" title="Lọc và xóa các từ khóa chứa từ cấm">🚫 Lọc nhanh</button>
   <div class="sep"></div>
+  <label class="chk-headless" title="Ẩn trình duyệt Chrome khi tìm kiếm (headless mode)"><input type="checkbox" id="chk-headless"> Ẩn Chrome</label>
   <button class="btn primary" id="btn-baidu" title="Tìm kiếm từ khóa trên Baidu (chế độ nhanh)">🔍 Baidu</button>
   <button class="btn primary" id="btn-baidu-detail" title="Tìm kiếm từ khóa trên Baidu (chế độ chi tiết, chính xác hơn, click tìm kiếm 3 lần liên tiếp)">🔍 Baidu CT</button>
   <button class="btn success" id="btn-auto-baidu" title="Tự động lấy gợi ý từ khóa mới từ Baidu dựa trên input_keywords.txt và tìm kiếm kết quả Baidu">🚀 Baidu từ mới</button>
   <button class="btn primary" id="btn-google" title="Tìm kiếm từ khóa trên Google">🌐 Google</button>
   <button class="btn primary" id="btn-sogou" title="Tìm kiếm từ khóa trên Sogou">🔎 Sogou</button>
-  <label class="chk-headless" title="Ẩn trình duyệt Chrome khi tìm kiếm (headless mode)"><input type="checkbox" id="chk-headless"> Ẩn Chrome</label>
   <button class="btn stop" id="btn-stop" style="display:none" title="Dừng quá trình tìm kiếm đang chạy">■ Dừng</button>
   <div class="sep"></div>
   <button class="btn" id="btn-import" title="Import danh sách từ khóa từ file Excel (.xlsx)">📥 Import</button>
@@ -96,7 +96,7 @@
 <!-- Modal Filter Words -->
 <div class="modal-overlay" id="modal-filter-words">
   <div class="modal">
-    <h2>🚫 Bỏ Bớt Từ</h2>
+    <h2>🚫 Lọc Nhanh</h2>
     <div class="form-group">
       <label>Áp dụng trên tất cả các cột</label>
       <textarea id="filter-words-content" rows="10" placeholder="kaiyun => Loại
