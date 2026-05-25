@@ -1,12 +1,5 @@
 "use strict";
 
-// [DEBUG] Bắt Ctrl+A ở mức window capture — xóa sau khi debug xong
-window.addEventListener('keydown', e => {
-  if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
-    console.log('[WINDOW Ctrl+A]', { key: e.key, target: e.target, tagName: e.target?.tagName, id: e.target?.id });
-  }
-}, true);
-
 // ── Theme ──────────────────────────────────────────────────────
 let currentTheme = localStorage.getItem('kw-theme') || 'light';
 

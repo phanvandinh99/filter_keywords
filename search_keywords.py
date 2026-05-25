@@ -111,8 +111,10 @@ def _extract_title(container: Any) -> str:
     return ""
 
 
-def _title_match_info(keyword: str, title: str) -> Tuple[bool, bool, int, int]:
-    """Trả về (match, startswith, pos, len_gap) để ưu tiên title sát keyword"""
+def _title_match_info(keyword: str, title: str, pos_limit: int = 60) -> Tuple[bool, bool, int, int]:
+    """Trả về (match, startswith, pos, len_gap) để ưu tiên title sát keyword.
+    pos_limit: giới hạn vị trí keyword trong title (mặc định 60, fallback 120).
+    """
     kw_norm = "".join(keyword.lower().split())
     title_norm = "".join(title.lower().split())
     if not kw_norm or not title_norm:
@@ -121,9 +123,64 @@ def _title_match_info(keyword: str, title: str) -> Tuple[bool, bool, int, int]:
     if title_norm.startswith(kw_norm):
         return (True, True, 0, len_gap)
     pos = title_norm.find(kw_norm)
-    if 0 <= pos < 120:
+    if 0 <= pos < pos_limit:
         return (True, False, pos, len_gap)
     return (False, False, -1, len_gap)
+
+
+def _score_result(result: dict) -> float:
+    """Tính điểm composite cho một kết quả tìm kiếm (thang 0–100).
+
+    Cân bằng giữa độ mới (time_tag), chất lượng khớp title, và có domain.
+    Thay thế cách so sánh tuple cũ vốn cho phép thời gian thắng tuyệt đối
+    dù title khớp rất tệ.
+
+    Trọng số:
+      - Thời gian đăng  : tối đa 38 điểm
+      - Title bắt đầu bằng keyword: 25 điểm
+      - Vị trí keyword  : tối đa 22 điểm
+      - Độ sát độ dài   : tối đa 10 điểm
+      - Có domain       :  5 điểm
+    """
+    score = 0.0
+
+    # 1. Thời gian đăng (0-38 điểm)
+    _TIME_SCORES = {"刚刚发布": 38, "今日发布": 25, "近期发布": 12}
+    score += _TIME_SCORES.get(result.get("time_tag", ""), 0)
+
+    # 2. Title bắt đầu bằng keyword (25 điểm)
+    if result.get("startswith_kw"):
+        score += 25
+
+    # 3. Vị trí keyword trong title (0–22 điểm, pos càng nhỏ càng tốt)
+    kw_pos = result.get("kw_pos", 9999)
+    if kw_pos == 0:
+        score += 22      # đã được startswith tính, cộng thêm để nhấn mạnh
+    elif kw_pos < 10:
+        score += 20
+    elif kw_pos < 25:
+        score += 14
+    elif kw_pos < 50:
+        score += 7
+    elif kw_pos < 120:
+        score += 2
+
+    # 4. Độ sát độ dài (0–10 điểm)
+    len_gap = result.get("len_gap", 9999)
+    if len_gap <= 3:
+        score += 10
+    elif len_gap <= 10:
+        score += 7
+    elif len_gap <= 25:
+        score += 4
+    elif len_gap <= 50:
+        score += 1
+
+    # 5. Có domain (5 điểm) — kết quả có domain đáng tin hơn
+    if result.get("domain"):
+        score += 5
+
+    return score
 
 
 def _extract_domain(container: Any) -> str:
@@ -605,38 +662,49 @@ def _extract_search_results(page: Page, keyword: str) -> List[Dict[str, Any]]:
             if containers:
                 break
 
-    for container in containers:
-        title = _extract_title(container)
-        if not title:
-            continue
+    def _collect(pos_limit: int) -> list:
+        """Thu thập kết quả hợp lệ với giới hạn vị trí keyword."""
+        collected = []
+        for container in containers:
+            title = _extract_title(container)
+            if not title:
+                continue
 
-        # Bỏ qua kết quả từ nguồn bị cấm (AI生成, GitHub...)
-        if _is_blocked_source(container):
-            logger.debug(f"[⛔] Bỏ qua kết quả từ nguồn bị cấm: {title[:40]}")
-            continue
+            # Bỏ qua kết quả từ nguồn bị cấm (AI生成, GitHub...)
+            if _is_blocked_source(container):
+                logger.debug(f"[⛔] Bỏ qua nguồn bị cấm: {title[:40]}")
+                continue
 
-        domain = _extract_domain(container)
-        time_tag = _extract_time_tag(container)
+            domain = _extract_domain(container)
+            time_tag = _extract_time_tag(container)
 
-        # Nếu domain bị block (tịp trang search/home Baidu): giữ title nhưng để domain rỗng
-        if _is_blocked_domain(domain):
-            logger.debug(f"[⛔] Domain bị chặn → để trống: {domain} | {title[:40]}")
-            domain = ""
+            # Domain bị block → để trống (giữ title)
+            if _is_blocked_domain(domain):
+                logger.debug(f"[⛔] Domain bị chặn → để trống: {domain} | {title[:40]}")
+                domain = ""
 
-        matched, startswith_kw, kw_pos, len_gap = _title_match_info(keyword, title)
-        if matched:
-            processed_title, added_text, is_processed = _process_title_patterns(title, keyword)
-            matched_results.append({
-                "title": processed_title,
-                "original_title": title,
-                "domain": domain,
-                "time_tag": time_tag,
-                "is_processed": is_processed,
-                "added_text": added_text,
-                "startswith_kw": startswith_kw,
-                "kw_pos": kw_pos,
-                "len_gap": len_gap,
-            })
+            matched, startswith_kw, kw_pos, len_gap = _title_match_info(keyword, title, pos_limit)
+            if matched:
+                processed_title, added_text, is_processed = _process_title_patterns(title, keyword)
+                collected.append({
+                    "title": processed_title,
+                    "original_title": title,
+                    "domain": domain,
+                    "time_tag": time_tag,
+                    "is_processed": is_processed,
+                    "added_text": added_text,
+                    "startswith_kw": startswith_kw,
+                    "kw_pos": kw_pos,
+                    "len_gap": len_gap,
+                })
+        return collected
+
+    # Adaptive threshold: thử strict (pos < 60) trước, fallback sang loose (pos < 120)
+    matched_results = _collect(pos_limit=60)
+    if not matched_results:
+        matched_results = _collect(pos_limit=120)
+        if matched_results:
+            logger.debug(f"[🔄] Dùng fallback pos<120 cho '{keyword}' — {len(matched_results)} kết quả")
 
     return matched_results
 
@@ -848,14 +916,15 @@ def _process_single_keyword(
             matched_results = _extract_search_results(page, kw)
 
         if matched_results:
-            best = max(
-                matched_results,
-                key=lambda x: (
-                    TIME_PRIORITY.get(x["time_tag"], 0),
-                    1 if x.get("startswith_kw") else 0,
-                    -x.get("kw_pos", 9999),
-                    -x.get("len_gap", 9999),
-                ),
+            # Composite scoring — cân bằng thời gian, chất lượng title, domain
+            scored = [(r, _score_result(r)) for r in matched_results]
+            best, best_score = max(scored, key=lambda x: x[1])
+            logger.debug(
+                f"[🏆] Kết quả tốt nhất cho '{kw}': "
+                f"score={best_score:.0f} | time={best.get('time_tag') or '—'} | "
+                f"startswith={best.get('startswith_kw')} | pos={best.get('kw_pos')} | "
+                f"gap={best.get('len_gap')} | domain={best.get('domain') or '—'} | "
+                f"title={best['title'][:50]}"
             )
             return (
                 best["title"],
@@ -1027,6 +1096,15 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, l
     chosen_ua = random.choice(MOBILE_USER_AGENTS)
     logger.info(f"[📱] User Agent: {chosen_ua[:80]}...")
 
+    # Args dùng chung cho tất cả lần launch
+    # --disable-extensions: tắt extension Chrome trong profile (tránh lỗi inject script)
+    # --no-first-run: bỏ qua màn hình chào lần đầu
+    _launch_args = BROWSER_CONFIG.get("args", []) + [
+        "--disable-extensions",
+        "--no-first-run",
+        "--disable-default-apps",
+    ]
+
     if use_temp_profile:
         _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
         logger.info(f"💻 Dùng profile tạm: {_temp_dir}")
@@ -1042,6 +1120,7 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, l
             user_data_dir=profile_dir,
             headless=headless,
             executable_path=CHROME_PATH,
+            args=_launch_args,
             viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
             user_agent=chosen_ua,
             locale=locale,
@@ -1067,6 +1146,7 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, l
                     user_data_dir=PROFILE_PATH,
                     headless=headless,
                     executable_path=CHROME_PATH,
+                    args=_launch_args,
                     viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
                     user_agent=chosen_ua,
                     locale=locale,
@@ -1082,6 +1162,7 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, l
                     user_data_dir=_temp_dir,
                     headless=headless,
                     executable_path=CHROME_PATH,
+                    args=_launch_args,
                     viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
                     user_agent=chosen_ua,
                     locale=locale,

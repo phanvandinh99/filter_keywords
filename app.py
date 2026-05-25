@@ -357,7 +357,7 @@ async def api_save_settings(req: SettingsRequest):
     config.CHROME_PATH = req.chrome_path
 
     # Propagate changes to other loaded modules that imported them at startup
-    modules_to_update = ["search_keywords", "google_search", "sogou_search", "domain_extractor", "debug_domain"]
+    modules_to_update = ["search_keywords", "google_search", "sogou_search", "domain_extractor"]
     for mod_name in modules_to_update:
         if mod_name in sys.modules:
             mod = sys.modules[mod_name]
@@ -683,51 +683,6 @@ async def api_stop():
     return {"ok": True}
 
 
-@app.post("/api/clear-baidu-cache")
-async def api_clear_baidu_cache():
-    """Xóa cookies + cache của baidu.com trong Chrome profile.
-    Giúp đảm bảo Baidu trả kết quả tìm kiếm mới nhất thay vì personalized/cached.
-    Không ảnh hưởng cookies của các trang khác.
-    """
-    if _job_running:
-        raise HTTPException(409, "Đang có tác vụ chạy. Hãy dừng trước.")
-
-    def _do_clear():
-        try:
-            from playwright.sync_api import sync_playwright
-            from config import PROFILE_PATH, CHROME_PATH
-            from search_keywords import _cleanup_chrome_locks, _kill_all_chrome_on_profile
-
-            _kill_all_chrome_on_profile(PROFILE_PATH)
-            _cleanup_chrome_locks(PROFILE_PATH)
-
-            with sync_playwright() as p:
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir=PROFILE_PATH,
-                    headless=True,
-                    executable_path=CHROME_PATH,
-                )
-                # Xóa tất cả cookies của baidu.com
-                context.clear_cookies()
-
-                # Xóa HTTP cache qua CDP
-                page = context.new_page()
-                try:
-                    cdp = context.new_cdp_session(page)
-                    cdp.send("Network.enable")
-                    cdp.send("Network.clearBrowserCache")
-                    cdp.detach()
-                except Exception:
-                    pass
-                page.close()
-                context.close()
-
-            push_log("✅ Đã xóa cookies và HTTP cache Baidu thành công! Kết quả tìm kiếm tiếp theo sẽ mới nhất.", "success")
-        except Exception as e:
-            push_log(f"❌ Lỗi khi xóa cache: {e}", "error")
-
-    threading.Thread(target=_do_clear, daemon=True).start()
-    return {"ok": True, "message": "Đang xóa cache Baidu..."}
 
 @app.get("/api/status")
 async def api_status():
