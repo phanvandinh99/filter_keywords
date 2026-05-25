@@ -487,10 +487,13 @@ function setRunning(v) {
     if (el) el.disabled = v;
   });
   document.getElementById('btn-stop').style.display = v ? '' : 'none';
-  ['btn-dedup','btn-banned','btn-import','btn-edit-seed','btn-settings','btn-save','btn-clear-results','btn-clear-all','btn-del-row'].forEach(id => {
+  ['btn-dedup','btn-banned','btn-import','btn-settings','btn-save','btn-clear-results','btn-clear-all','btn-del-row'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.disabled = v;
   });
+  // Disable/enable nút trong modal seed khi đang chạy
+  const seedRun = document.getElementById('btn-seed-run');
+  if (seedRun) seedRun.disabled = v;
 }
 
 async function loadIpInfo() {
@@ -524,10 +527,6 @@ async function runSearch(action) {
       const err = await res.json();
       toast(err.detail || 'Lỗi', 'error');
       setRunning(false);
-      if (action === 'auto_baidu' && res.status === 400) {
-        // Tự động mở popup nhập từ khóa mới
-        document.getElementById('btn-edit-seed').click();
-      }
     }
   } catch (e) {
     toast('Lỗi: ' + e.message, 'error');
@@ -537,7 +536,13 @@ async function runSearch(action) {
 
 document.getElementById('btn-baidu').onclick = () => runSearch('baidu');
 document.getElementById('btn-baidu-detail').onclick = () => runSearch('baidu_detailed');
-document.getElementById('btn-auto-baidu').onclick = () => runSearch('auto_baidu');
+document.getElementById('btn-auto-baidu').onclick = async () => {
+  // Mở modal seed để nhập từ khóa mới trước khi chạy
+  const r = await fetch('/api/seed');
+  const d = await r.json();
+  document.getElementById('seed-content').value = d.content || '';
+  openModal('modal-seed', '#seed-content');
+};
 document.getElementById('btn-google').onclick = () => runSearch('google');
 document.getElementById('btn-sogou').onclick = () => runSearch('sogou');
 document.getElementById('btn-stop').onclick = () => fetch('/api/stop', { method: 'POST' });
@@ -730,21 +735,28 @@ document.getElementById('btn-settings-save').onclick = async () => {
 
 
 // ── Seed Keywords ──────────────────────────────────────────────
-document.getElementById('btn-edit-seed').onclick = async () => {
-  const r = await fetch('/api/seed');
-  const d = await r.json();
-  document.getElementById('seed-content').value = d.content || '';
-  openModal('modal-seed', '#seed-content');
-};
-document.getElementById('btn-seed-cancel').onclick = () =>
-  document.getElementById('modal-seed').classList.remove('open');
-document.getElementById('btn-seed-save').onclick = async () => {
+async function saveSeedContent() {
+  const content = document.getElementById('seed-content').value;
   await fetch('/api/seed', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: document.getElementById('seed-content').value }),
+    body: JSON.stringify({ content }),
   });
+  return content;
+}
+
+document.getElementById('btn-seed-cancel').onclick = () =>
   document.getElementById('modal-seed').classList.remove('open');
-  toast('Đã lưu từ khóa mới', 'success');
+
+document.getElementById('btn-seed-run').onclick = async () => {
+  const content = document.getElementById('seed-content').value.trim();
+  if (!content) {
+    toast('Vui lòng nhập ít nhất một từ khóa seed', 'info');
+    return;
+  }
+  await saveSeedContent();
+  document.getElementById('modal-seed').classList.remove('open');
+  toast('Đã lưu — Đang khởi động Baidu từ mới...', 'info');
+  runSearch('auto_baidu');
 };
 
 // ── KW Files (keywords.txt & priority_titles.txt) ──────────

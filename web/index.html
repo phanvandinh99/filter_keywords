@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Keyword Tool</title>
-<link rel="stylesheet" href="/static/style.css?v=8">
+<link rel="stylesheet" href="/static/style.css?v=9">
 <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.2/dist/ag-grid-community.min.js"></script>
 </head>
 <body>
@@ -32,7 +32,7 @@
   <div class="sep"></div>
   <button class="btn" id="btn-import" title="Import danh sách từ khóa từ file Excel (.xlsx)">📥 Import</button>
   <button class="btn success" id="btn-export" title="Xuất kết quả ra file Excel (.xlsx)">📤 Export</button>
-  <button class="btn" id="btn-edit-seed" title="Mở danh sách từ khóa mới (seed keywords) để lấy gợi ý từ Baidu">✏️ Từ khóa mới</button>
+
   <button class="btn" id="btn-edit-kwfiles" title="Chỉnh sửa keywords.txt và priority_titles.txt">📝 KW Files</button>
   <button class="btn" id="btn-settings" title="Cài đặt đường dẫn Chrome và Profile">⚙️ Cài đặt</button>
   <div class="sep"></div>
@@ -113,14 +113,14 @@
 <!-- Modal Seed Keywords -->
 <div class="modal-overlay" id="modal-seed">
   <div class="modal">
-    <h2>🌱 Danh Sách Từ Khóa mới (Seed Keywords)</h2>
+    <h2>🌱 Nhập Từ Khóa Cần Tìm kiếm Liên Quan</h2>
     <div class="form-group">
-      <label>Mỗi từ khóa mới một dòng để tự động lấy gợi ý từ Baidu</label>
-      <textarea id="seed-content" rows="10" placeholder="Ví dụ:&#10;game bai&#10;nha cai uy tin"></textarea>
+      <label>Lấy từ khóa F12 từ baidu</label>
+      <textarea id="seed-content" rows="10"></textarea>
     </div>
     <div class="modal-footer">
       <button class="btn" id="btn-seed-cancel">Hủy</button>
-      <button class="btn primary" id="btn-seed-save">Lưu</button>
+      <button class="btn success" id="btn-seed-run">🚀 Tìm từ liên quan</button>
     </div>
   </div>
 </div>
@@ -153,6 +153,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=8"></script>
+<script src="/static/app.js?v=9"></script>
 </body>
 </html>
