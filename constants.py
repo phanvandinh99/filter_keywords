@@ -166,6 +166,12 @@ BLOCKED_DOMAINS = [
     # Game site — block tất cả subdomain của 3dmgame.com (app.3dmgame.com, v.v.)
     "3dmgame.com",
     ".3dmgame.com",
+    # Game site — block tất cả subdomain của weibo.com (app.weibo.com, v.v.)
+    "weibo.com",
+    ".weibo.com",
+    # Game site — block tất cả subdomain của vk.com (app.vk.com, v.v.)
+    "vk.com",
+    ".vk.com",
 ]
 
 # Debug settings
