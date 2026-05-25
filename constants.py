@@ -182,6 +182,10 @@ BLOCKED_DOMAINS = [
     # Game site — block tất cả subdomain của zhihu.com (app.zhihu.com, v.v.)
     "zhihu.com",
     ".zhihu.com",
+    # Game site — block tất cả subdomain của huatu.com (app.huatu.com, v.v.)
+    "huatu.com",
+    ".huatu.com",
+    
 ]
 
 # Debug settings
