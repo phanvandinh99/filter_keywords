@@ -172,6 +172,9 @@ BLOCKED_DOMAINS = [
     # Game site — block tất cả subdomain của vk.com (app.vk.com, v.v.)
     "vk.com",
     ".vk.com",
+    # Game site — block tất cả subdomain của zhihu.com (app.zhihu.com, v.v.)
+    "zhihu.com",
+    ".zhihu.com",
 ]
 
 # Debug settings
