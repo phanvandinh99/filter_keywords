@@ -87,6 +87,9 @@ DELAYS = {
     "result_stable": 0.5,
     "homepage_load": 1.0,
     "homepage_load_fallback": 2.0,
+    # Occasional human-like pause mỗi ~10 từ khóa
+    "human_pause_min": 4.0,
+    "human_pause_max": 8.0,
 }
 
 # Selectors
@@ -137,7 +140,11 @@ SELECTORS = {
 URLS = {
     "ip_check": "https://api.ip.sb/geoip",
     "baidu_mobile": "https://m.baidu.com",
-    "baidu_search": "https://m.baidu.com/s?word={}",
+    # URL tìm kiếm Baidu Mobile với params tự nhiên
+    # from=844b  → nguồn từ browser mời trên mobile
+    # sa=ib      → tìm kiếm từ input box (không phải từ voice/suggest)
+    # tn=baidu   → template của Baidu Mobile (trả về đúng index)
+    "baidu_search": "https://m.baidu.com/s?word={}&from=844b&sa=ib&tn=baidu",
 }
 
 # Expected country code for IP check

@@ -43,6 +43,7 @@ from constants import (
     NO_RESULT_MAX_RETRIES,
     NO_RESULT_RETRY_DELAY_MIN,
     NO_RESULT_RETRY_DELAY_MAX,
+    MOBILE_USER_AGENTS,
 )
 
 logger = logging.getLogger()
@@ -973,6 +974,42 @@ def _kill_all_chrome_on_profile(profile_path: str) -> None:
         time.sleep(2.0)  # buffer cho OS giải phóng profile lock
 
 
+def _clear_browser_cache(page) -> None:
+    """Xóa HTTP cache + cookies của baidu.com mỗi lần bắt đầu tìm kiếm.
+    - HTTP cache: xóa qua CDP — kết quả Baidu không bị serve từ cache cũ
+    - Cookies baidu.com: xóa session cũ để Baidu không personalize kết quả
+    Không xóa cookies các trang khác — chỉ target đúng baidu.com.
+    """
+    # 1. Xóa cookies của baidu.com (cả subdomain)
+    try:
+        all_cookies = page.context.cookies()
+        baidu_cookies = [
+            c for c in all_cookies
+            if "baidu.com" in c.get("domain", "")
+        ]
+        if baidu_cookies:
+            page.context.clear_cookies(domain=".baidu.com")
+            try:
+                page.context.clear_cookies(domain="baidu.com")
+            except Exception:
+                pass
+            logger.info(f"[🧹] Đã xóa {len(baidu_cookies)} cookies Baidu (session cũ)")
+        else:
+            logger.info("[ℹ️] Không có cookies Baidu cũ — bắt đầu session mới")
+    except Exception as e:
+        logger.warning(f"[⚠️] Không xóa được cookies Baidu: {e}")
+
+    # 2. Xóa HTTP cache qua CDP
+    try:
+        cdp = page.context.new_cdp_session(page)
+        cdp.send("Network.enable")
+        cdp.send("Network.clearBrowserCache")
+        cdp.detach()
+        logger.info("[🧹] Đã xóa HTTP cache trình duyệt")
+    except Exception as e:
+        logger.warning(f"[⚠️] Không xóa được HTTP cache: {e}")
+
+
 def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, location: str = "default"):
     """Launch browser, trả về (browser, browser_context, browser_pid, temp_dir)."""
     _browser = None
@@ -985,6 +1022,10 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, l
     timezone_id = loc_prof.get("timezone_id")
     geolocation = loc_prof.get("geolocation")
     permissions = ["geolocation"] if geolocation else None
+
+    # Rotate User Agent ngẫu nhiên mỗi phiên — tránh Baidu fingerprint
+    chosen_ua = random.choice(MOBILE_USER_AGENTS)
+    logger.info(f"[📱] User Agent: {chosen_ua[:80]}...")
 
     if use_temp_profile:
         _temp_dir = tempfile.mkdtemp(prefix="chrome_tmp_")
@@ -1002,7 +1043,7 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, l
             headless=headless,
             executable_path=CHROME_PATH,
             viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
-            user_agent=BROWSER_CONFIG.get("user_agent"),
+            user_agent=chosen_ua,
             locale=locale,
             timezone_id=timezone_id,
             geolocation=geolocation,
@@ -1027,7 +1068,7 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, l
                     headless=headless,
                     executable_path=CHROME_PATH,
                     viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
-                    user_agent=BROWSER_CONFIG.get("user_agent"),
+                    user_agent=chosen_ua,
                     locale=locale,
                     timezone_id=timezone_id,
                     geolocation=geolocation,
@@ -1042,7 +1083,7 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, l
                     headless=headless,
                     executable_path=CHROME_PATH,
                     viewport=BROWSER_CONFIG.get("viewport", {"width": 390, "height": 844}),
-                    user_agent=BROWSER_CONFIG.get("user_agent"),
+                    user_agent=chosen_ua,
                     locale=locale,
                     timezone_id=timezone_id,
                     geolocation=geolocation,
@@ -1154,6 +1195,9 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
 
             page = browser_context.new_page()
             recent_responses, recent_failed_requests, recent_console = _setup_debug_handlers(page)
+
+            # Xóa HTTP cache để đảm bảo kết quả mới nhất từ Baidu
+            _clear_browser_cache(page)
 
             total = len(keywords)
 
@@ -1275,14 +1319,24 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
 
                 results.append(result)
 
-                # Delay giữa các request
+                # Delay giữa các request — humanized: đôi khi nghỉ dài như người thật
                 if counters["error"] > 0 and idx < total:
                     delay = random.uniform(DELAYS["error_min"], DELAYS["error_max"])
                 elif is_detailed:
                     delay = random.uniform(DELAYS["detailed_min"], DELAYS["detailed_max"])
                 else:
                     delay = random.uniform(DELAYS["normal_min"], DELAYS["normal_max"])
-                time.sleep(delay)
+
+                # Occasional longer pause mỗi ~10 từ khóa (giả lập người đọc kết quả)
+                if idx % 10 == 0 and idx < total:
+                    human_pause = random.uniform(
+                        DELAYS.get("human_pause_min", 4.0),
+                        DELAYS.get("human_pause_max", 8.0),
+                    )
+                    logger.info(f"[⏳] Nghỉ ngắn {human_pause:.1f}s (phòng chống rate limit Baidu)...")
+                    time.sleep(human_pause)
+                else:
+                    time.sleep(delay)
 
         except Exception as e:
             logger.error(f"[❌] Lỗi trong playwright_worker: {e}", exc_info=True)

@@ -55,6 +55,10 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);
 [data-theme="dark"] .btn.success{background:#14532d;border-color:var(--success);color:var(--success)}
 .btn.stop{background:#fef3c7;border-color:#fcd34d;color:#92400e}
 [data-theme="dark"] .btn.stop{background:#78350f;border-color:var(--warning);color:var(--warning)}
+.btn.warning{background:#fff7ed;border-color:#fdba74;color:#c2410c}
+.btn.warning:hover{background:#ffedd5;border-color:#f97316}
+[data-theme="dark"] .btn.warning{background:#431407;border-color:#c2410c;color:#fb923c}
+[data-theme="dark"] .btn.warning:hover{background:#5c1a07;border-color:#ea580c}
 .sep{width:1px;height:22px;background:var(--border);margin:0 3px}
 .chk-headless{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;color:var(--text2);
   cursor:pointer;padding:2px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg3);
