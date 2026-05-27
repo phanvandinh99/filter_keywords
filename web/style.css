@@ -186,6 +186,11 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);
 #toast.success{border-color:var(--success);color:var(--success)}
 #toast.error{border-color:var(--error);color:var(--error)}
 #toast.info{border-color:var(--accent);color:var(--accent)}
+#toast.golink-alert{max-width:420px;font-size:14px;font-weight:600;
+  background:#fef2f2;border-color:#dc2626;color:#b91c1c;
+  padding:14px 20px;animation:golink-pulse 0.6s ease 2;}
+@keyframes golink-pulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.4)} 50%{box-shadow:0 0 0 10px rgba(220,38,38,0)}}
+[data-theme="dark"] #toast.golink-alert{background:#2d1010;border-color:#ef4444;color:#fca5a5}
 
 /* ── Cell Selection (Excel-like) ── */
 #myGrid.drag-selecting { cursor: crosshair !important; }
@@ -275,3 +280,49 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);
 [data-theme="dark"] .preview-remove{background:#7f1d1d;color:#fca5a5}
 [data-theme="dark"] .preview-keep{background:#14532d;color:#86efac}
 
+/* ── Zhannei Modal ── */
+.modal-zhannei-wide{width:1400px;max-width:97vw;height:76vh;max-height:76vh;display:flex;flex-direction:column}
+.zhannei-layout{display:flex;gap:16px;flex:1;overflow:hidden;min-height:0}
+.zhannei-left{width:320px;flex-shrink:0;display:flex;flex-direction:column;gap:0;min-height:0;overflow:hidden}
+.zhannei-right{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+
+/* ── Zhannei mini log ── */
+.zhannei-log-panel{flex:1;display:flex;flex-direction:column;overflow:hidden;
+  border:1px solid var(--border);border-radius:7px;background:var(--bg);min-height:80px;margin-bottom:0}
+.zhannei-log-header{display:flex;align-items:center;justify-content:space-between;
+  padding:4px 8px;background:var(--bg3);border-bottom:1px solid var(--border);
+  border-radius:7px 7px 0 0;flex-shrink:0}
+.zhannei-log-header span{font-size:10.5px;font-weight:600;color:var(--text-muted)}
+#zhannei-log-body{flex:1;overflow-y:auto;padding:4px 8px;
+  font-family:'Cascadia Code','Fira Code',monospace;font-size:10.5px;line-height:1.6;min-height:0}
+#zhannei-log-body::-webkit-scrollbar{width:3px}
+#zhannei-log-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+#zhannei-log-body .log-info{color:var(--text-muted)}
+#zhannei-log-body .log-success{color:var(--success)}
+#zhannei-log-body .log-error{color:var(--error);font-weight:600}
+#zhannei-log-body .log-warning{color:var(--warning)}
+.zhannei-suffix-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.zhannei-radio{display:inline-flex;align-items:center;gap:4px;font-size:12px;
+  cursor:pointer;padding:3px 8px;border:1px solid var(--border);border-radius:5px;
+  background:var(--bg3);color:var(--text2);transition:all .15s;user-select:none;text-align:center}
+.zhannei-radio:hover{border-color:var(--accent);color:var(--accent)}
+.zhannei-radio input[type=radio]{accent-color:var(--accent);cursor:pointer}
+.zhannei-result-header{display:flex;align-items:center;justify-content:space-between;
+  padding:5px 8px;background:var(--bg3);border:1px solid var(--border);
+  border-radius:7px 7px 0 0;font-size:11px;color:var(--text-muted);font-weight:600}
+#zhannei-status{color:var(--accent);font-weight:600}
+.zhannei-table-wrap{flex:1;overflow:auto;border:1px solid var(--border);border-top:none;
+  border-radius:0 0 7px 7px;background:var(--bg2)}
+#zhannei-result-table{width:100%;border-collapse:collapse;font-size:11.5px}
+#zhannei-result-table thead tr{background:var(--bg3);position:sticky;top:0;z-index:1}
+#zhannei-result-table th{padding:6px 10px;text-align:left;font-weight:600;
+  color:var(--text-muted);border-bottom:1px solid var(--border);white-space:nowrap}
+#zhannei-result-table td{padding:5px 10px;border-bottom:1px solid var(--border);
+  color:var(--text2);vertical-align:top;line-height:1.4}
+#zhannei-result-table tbody tr:hover{background:var(--bg3)}
+#zhannei-result-table td:nth-child(1){color:var(--text-muted);font-size:10px;width:30px;text-align:center}
+#zhannei-result-table td:nth-child(2){color:var(--accent);font-weight:600;max-width:200px}
+#zhannei-result-table td:nth-child(3){max-width:340px;color:var(--text);font-size:11px}
+#zhannei-result-table td:nth-child(4){color:var(--success);white-space:nowrap;font-size:10.5px}
+#zhannei-result-table .zhannei-sep td{font-weight:700;color:var(--warning);font-size:10.5px;
+  padding:3px 10px;border-bottom:1px solid var(--border);background:var(--bg3)}

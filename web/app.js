@@ -431,11 +431,46 @@ function setDot(ok) {
 }
 
 function handleMsg(msg) {
-  if (msg.type === 'log') appendLog(msg.text, msg.level);
+  if (msg.type === 'log') {
+    appendLog(msg.text, msg.level);
+    // Đồng thời hiện log trong mini panel Zhannei (nếu đang chạy)
+    if (_zhanneiRunning) appendZhanneiLog(msg.text, msg.level);
+  }
   else if (msg.type === 'progress') updateProgress(msg.current, msg.total, msg.keyword, msg.pct);
   else if (msg.type === 'result') applyResult(msg);
   else if (msg.type === 'done') onSearchDone(msg);
   else if (msg.type === 'refresh_data') setGridDataEnsuringEmptyRow(msg.rows);
+  // ── Zhannei messages ──
+  else if (msg.type === 'zhannei_result') {
+    const item = { keyword: msg.keyword, title: msg.title, domain: msg.domain };
+    zhanneiResults.push(item);
+    zhanneiAppendRow(item, zhanneiResults.length);
+    document.getElementById('zhannei-status').textContent = `Đã tìm: ${zhanneiResults.length} kết quả`;
+    document.getElementById('zhannei-add-count').textContent = zhanneiResults.length;
+    document.getElementById('btn-zhannei-add').disabled = false;
+  }
+  else if (msg.type === 'zhannei_sep') zhanneiAppendSep(msg.domain, msg.suffix);
+  else if (msg.type === 'zhannei_error') {
+    _zhanneiRunning = false;
+    document.getElementById('zhannei-status').textContent = '❌ Không kết nối — Hãy bật GOLINK!';
+    appendZhanneiLog('❌ Lỗi kết nối — Vui lòng bật GOLINK rồi thử lại!', 'error');
+    zhanneiResetUI();
+    const tEl = document.getElementById('toast');
+    tEl.textContent = '🔒 Vui lòng bật app GOLINK';
+    tEl.className = 'show error golink-alert';
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => { tEl.className = ''; }, 7000);
+  }
+  else if (msg.type === 'zhannei_done') {
+    _zhanneiRunning = false;
+    const stopped = document.getElementById('zhannei-status').textContent.includes('⏹');
+    const summary = stopped
+      ? `⏹ Dừng — đã thu ${zhanneiResults.length} kết quả`
+      : `✅ Xong! ${zhanneiResults.length} kết quả từ ${msg.total_domains} domain`;
+    document.getElementById('zhannei-status').textContent = summary;
+    appendZhanneiLog(summary, stopped ? 'warning' : 'success');
+    zhanneiResetUI();
+  }
 }
 
 function appendLog(text, level = 'info') {
@@ -446,6 +481,19 @@ function appendLog(text, level = 'info') {
   el.appendChild(d);
   if (el.children.length > 500) el.removeChild(el.firstChild);
   if (document.getElementById('auto-scroll').checked) el.scrollTop = el.scrollHeight;
+}
+
+function appendZhanneiLog(text, level = 'info') {
+  const el = document.getElementById('zhannei-log-body');
+  if (!el) return;
+  const now = new Date();
+  const ts = now.toTimeString().slice(0, 8); // HH:MM:SS
+  const d = document.createElement('div');
+  d.className = 'log-' + level;
+  d.textContent = `[${ts}] ${text}`;
+  el.appendChild(d);
+  if (el.children.length > 200) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
 }
 
 function updateProgress(cur, tot, kw, pct) {
@@ -854,6 +902,234 @@ applyTheme(currentTheme);
 initGrid();
 connectWS();
 loadIpInfo();
+
+// ── Zhannei ────────────────────────────────────────────────────
+let zhanneiResults = [];
+let _zhanneiRunning = false;
+
+// ── Domain extractor ──────────────────────────────────────────
+// Danh sách 2-level TLD phổ biến (cần lấy 3 phần cuối thay vì 2)
+const ZHANNEI_TWO_LEVEL_TLDS = new Set([
+  'com.cn','net.cn','org.cn','gov.cn','edu.cn','ac.cn','mil.cn','adm.cn',
+  'com.hk','org.hk','net.hk','gov.hk','edu.hk','idv.hk',
+  'com.tw','org.tw','net.tw','gov.tw','edu.tw','idv.tw',
+  'com.au','org.au','net.au','gov.au','edu.au','id.au',
+  'co.uk','org.uk','net.uk','gov.uk','me.uk','ltd.uk','plc.uk',
+  'com.br','org.br','net.br','gov.br','edu.br',
+  'co.jp','com.jp','or.jp','ne.jp','go.jp','ac.jp','ed.jp',
+  'co.in','com.in','net.in','org.in','gov.in','edu.in',
+  'co.nz','org.nz','net.nz','govt.nz','edu.nz',
+  'co.za','org.za','net.za','gov.za','edu.za',
+  'com.sg','org.sg','net.sg','gov.sg','edu.sg','per.sg',
+  'com.my','org.my','net.my','gov.my','edu.my',
+  'com.vn','org.vn','net.vn','gov.vn','edu.vn','int.vn',
+  'com.ph','org.ph','net.ph','gov.ph','edu.ph',
+  'com.pk','org.pk','net.pk','gov.pk','edu.pk',
+  'com.bd','org.bd','net.bd','gov.bd','edu.bd',
+  'com.kh','org.kh','net.kh','gov.kh','edu.kh',
+  'com.mm','org.mm','net.mm','gov.mm','edu.mm',
+]);
+
+function extractBaseDomain(raw) {
+  raw = (raw || '').trim();
+  if (!raw) return null;
+
+  // Bỏ protocol (https://, http://, ftp://)
+  raw = raw.replace(/^[a-z]+:\/\//i, '');
+
+  // Bỏ path, query, fragment, port
+  raw = raw.split('/')[0].split('?')[0].split('#')[0].split(':')[0];
+
+  const hostname = raw.toLowerCase().trim();
+
+  // Phải có ít nhất 1 dấu chấm và ký tự hợp lệ
+  if (!hostname || !hostname.includes('.')) return null;
+  if (!/^[a-z0-9][a-z0-9.\-]*[a-z0-9]$/i.test(hostname)) return null;
+
+  const parts = hostname.split('.');
+  if (parts.length < 2) return null;
+
+  // Kiểm tra 2-level TLD: ví dụ .com.cn → lấy 3 phần cuối
+  if (parts.length >= 3) {
+    const lastTwo = parts.slice(-2).join('.');
+    if (ZHANNEI_TWO_LEVEL_TLDS.has(lastTwo)) {
+      return parts.slice(-3).join('.');
+    }
+  }
+
+  // Mặc định: lấy 2 phần cuối (ví dụ readshare.cn, vipshare.top)
+  return parts.slice(-2).join('.');
+}
+
+function processZhanneiDomains(text) {
+  const lines = text.split(/[\r\n,;\s]+/);
+  const seen = new Set();
+  const result = [];
+  for (const line of lines) {
+    const d = extractBaseDomain(line);
+    if (d && !seen.has(d)) {
+      seen.add(d);
+      result.push(d);
+    }
+  }
+  return result;
+}
+
+function zhanneiExtractAndUpdate() {
+  const ta = document.getElementById('zhannei-domains');
+  const raw = ta.value;
+  if (!raw.trim()) return;
+  const domains = processZhanneiDomains(raw);
+  if (!domains.length) return;
+  ta.value = domains.join('\n');
+  // Hiện badge kết quả
+  const badge = document.getElementById('zhannei-extract-badge');
+  if (badge) {
+    badge.textContent = `✅ ${domains.length} domain`;
+    badge.style.display = '';
+    clearTimeout(badge._timer);
+    badge._timer = setTimeout(() => { badge.style.display = 'none'; }, 4000);
+  }
+}
+
+document.getElementById('btn-zhannei').onclick = () =>
+  openModal('modal-zhannei', '#zhannei-domains');
+
+document.getElementById('btn-zhannei-cancel').onclick = () =>
+  document.getElementById('modal-zhannei').classList.remove('open');
+
+// Nút ⚡ Trích xuất
+document.getElementById('btn-zhannei-extract').onclick = zhanneiExtractAndUpdate;
+
+// Auto-extract khi paste vào textarea
+document.getElementById('zhannei-domains').addEventListener('paste', () => {
+  setTimeout(zhanneiExtractAndUpdate, 50); // chờ paste hoàn tất
+});
+
+
+
+document.getElementById('btn-zhannei-clear').onclick = () => {
+  zhanneiResults = [];
+  document.getElementById('zhannei-result-body').innerHTML = '';
+  document.getElementById('zhannei-status').textContent = 'Chưa chạy';
+  document.getElementById('btn-zhannei-add').disabled = true;
+  document.getElementById('zhannei-add-count').textContent = '0';
+};
+
+document.getElementById('btn-zhannei-clear-log').onclick = () => {
+  document.getElementById('zhannei-log-body').innerHTML = '';
+};
+
+function getZhanneiSuffix() {
+  // Ưu tiên custom input nếu người dùng nhập
+  const custom = document.getElementById('zhannei-suffix-custom').value.trim();
+  if (custom) return custom;
+  // Nếu không có custom → dùng radio đang được chọn (mặc định: app)
+  const checked = document.querySelector('input[name="zhannei-suffix"]:checked');
+  return checked ? checked.value : 'app';
+}
+
+function zhanneiAppendRow(item, index) {
+  const tbody = document.getElementById('zhannei-result-body');
+  const tr = document.createElement('tr');
+  const kw = (item.keyword || '').replace(/</g, '&lt;');
+  const tl = (item.title || '').replace(/</g, '&lt;');
+  tr.innerHTML = `<td>${index}</td><td title="${kw}">${kw}</td><td title="${tl}">${tl}</td><td>${item.domain || ''}</td>`;
+  tbody.appendChild(tr);
+  const wrap = document.querySelector('.zhannei-table-wrap');
+  if (wrap) wrap.scrollTop = wrap.scrollHeight;
+}
+
+function zhanneiAppendSep(domain, suffix) {
+  const tbody = document.getElementById('zhannei-result-body');
+  const tr = document.createElement('tr');
+  tr.className = 'zhannei-sep';
+  tr.innerHTML = `<td colspan="4">\uD83C\uDF10 ${domain} + "${suffix}"</td>`;
+  tbody.appendChild(tr);
+}
+
+// Zhannei: KHONG patch ws.onmessage nua - handler da tich hop vao handleMsg() o tren
+// (Tranh bi mat sau khi WS reconnect)
+
+
+// Helper: reset UI zhannei ve trang thai ban dau
+function zhanneiResetUI() {
+  clearTimeout(window._zhanneiStopTimer);
+  const runBtn = document.getElementById('btn-zhannei-run');
+  const stopBtn = document.getElementById('btn-zhannei-stop');
+  if (runBtn) { runBtn.disabled = false; runBtn.textContent = '\uD83D\uDD77 B\u1eaft đầu tìm'; }
+  if (stopBtn) { stopBtn.style.display = 'none'; stopBtn.disabled = false; stopBtn.textContent = '\u25A0 D\u1eebng'; }
+}
+
+// Dung zhannei
+document.getElementById('btn-zhannei-stop').onclick = async () => {
+  // 1. Reset UI NGAY LAP TUC (optimistic) - khong cho backend
+  const kept = zhanneiResults.length;
+  zhanneiResetUI();
+  document.getElementById('zhannei-status').textContent =
+    `\u23F9 D\u1eebng \u2014 gi\u1EEF ${kept} k\u1EBFt qu\u1EA3`;
+  // 2. Bao hieu backend dung (background, khong await)
+  fetch('/api/stop', { method: 'POST' }).catch(() => {});
+};
+
+document.getElementById('btn-zhannei-run').onclick = async () => {
+  const domainsRaw = document.getElementById('zhannei-domains').value.trim();
+  if (!domainsRaw) { toast('Vui lòng nhập ít nhất một domain', 'info'); return; }
+  const domains = domainsRaw.split(/\r?\n/).map(d => d.trim()).filter(Boolean);
+  if (!domains.length) { toast('Vui lòng nhập ít nhất một domain', 'info'); return; }
+  const suffix = getZhanneiSuffix();
+  const maxPages = 99; // Tự động lấy tất cả trang (backend dừng khi hết next page)
+
+  zhanneiResults = [];
+  _zhanneiRunning = true;
+  document.getElementById('zhannei-result-body').innerHTML = '';
+  document.getElementById('zhannei-log-body').innerHTML = '';  // clear log cũ
+  document.getElementById('zhannei-add-count').textContent = '0';
+  document.getElementById('btn-zhannei-add').disabled = true;
+  document.getElementById('zhannei-status').textContent = '\u23F3 Đang tìm...';
+  document.getElementById('btn-zhannei-run').disabled = true;
+  document.getElementById('btn-zhannei-run').textContent = '\u23F3 \u0110ang ch\u1ea1y...';
+  document.getElementById('btn-zhannei-stop').style.display = '';
+
+  try {
+    const res = await fetch('/api/zhannei', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domains, suffix, max_pages: maxPages }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      toast(err.detail || 'L\u1ed7i Zhannei', 'error');
+      document.getElementById('btn-zhannei-run').disabled = false;
+      document.getElementById('btn-zhannei-run').textContent = '\uD83D\uDD77 B\u1eaft \u0111\u1ea7u t\u00ecm';
+      document.getElementById('btn-zhannei-stop').style.display = 'none';
+    }
+  } catch (e) {
+    toast('L\u1ed7i: ' + e.message, 'error');
+    document.getElementById('btn-zhannei-run').disabled = false;
+    document.getElementById('btn-zhannei-run').textContent = '\uD83D\uDD77 B\u1eaft \u0111\u1ea7u t\u00ecm';
+    document.getElementById('btn-zhannei-stop').style.display = 'none';
+  }
+};
+
+document.getElementById('btn-zhannei-add').onclick = async () => {
+  if (!zhanneiResults.length) return;
+  const allRows = getAllRows();
+  const maxStt = allRows.reduce((m, r) => Math.max(m, r.stt || 0), 0);
+  const newRows = zhanneiResults.map((item, i) => ({
+    stt: maxStt + i + 1,
+    keyword: item.keyword,
+    title: item.title,
+    domain: item.domain,
+    time_tag: '',
+    main_title: '',
+  }));
+  const existing = allRows.filter(r => r.keyword || r.title || r.domain || r.main_title);
+  setGridDataEnsuringEmptyRow([...existing, ...newRows]);
+  await saveData();
+  toast(`\u2705 Đã thêm ${newRows.length} dòng vào bảng`, 'success');
+  document.getElementById('modal-zhannei').classList.remove('open');
+};
 
 // ── Cell Selection (kiểu Excel) ───────────────────────────────
 const selectedCells = new Set();  // Set<"rowIndex:colId">

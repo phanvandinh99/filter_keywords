@@ -425,6 +425,288 @@ class WSStream:
     def flush(self):
         self.original_stream.flush()
 
+# ── Zhannei scraper ────────────────────────────────────────────────────────────
+
+import re as _re
+
+ZHANNEI_STRIP_SUFFIXES = [
+    r'官方版下载$', r'官方版免费版$', r'官方版官方版$', r'免费版下载$',
+    r'官方版$', r'免费版$', r'最新版$', r'安卓版$',
+    r'版下载$', r'版免费版$', r'版官方版$', r'下载$',
+]
+
+def _extract_keyword(title: str) -> str:
+    """Lấy phần trước dấu '-' đầu tiên rồi strip các suffix quảng cáo."""
+    if not title:
+        return ''
+    # Lấy phần trước '-' đầu tiên
+    part = title.split('-')[0].strip()
+    # Strip các suffix biết trước
+    for pattern in ZHANNEI_STRIP_SUFFIXES:
+        part = _re.sub(pattern, '', part).strip()
+    return part
+
+def _extract_base_domain(showurl: str) -> str:
+    """Trích base domain từ c-showurl text. Ví dụ: 'mobile.szetnl.com/...' → 'szetnl.com'"""
+    if not showurl:
+        return ''
+    # Lấy phần trước space (bỏ ngày)
+    host_part = showurl.split(' ')[0].strip()
+    # Lấy hostname (bỏ path)
+    hostname = host_part.split('/')[0]
+    # Lấy 2 phần cuối (base domain)
+    parts = hostname.split('.')
+    if len(parts) >= 2:
+        return '.'.join(parts[-2:])
+    return hostname
+
+def _fetch_with_stop(url: str, headers: dict, timeout: int = 12):
+    """Fetch URL trong sub-thread, poll _stop_event moi 0.5s.
+    Tra ve html string, None neu bi dung, raise Exception neu loi mang.
+    """
+    import urllib.request as _ur
+    result: dict = {}
+
+    def _do(u=url, h=headers, out=result):
+        try:
+            req = _ur.Request(u, headers=h)
+            with _ur.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+                cs = resp.headers.get_content_charset() or 'utf-8'
+                out['html'] = raw.decode(cs, errors='replace')
+        except Exception as ex:
+            out['error'] = str(ex)
+
+    t = threading.Thread(target=_do, daemon=True)
+    t.start()
+    while t.is_alive():
+        if _stop_event.wait(timeout=0.5):
+            return None          # User nhan Dung
+    t.join(timeout=0.1)
+    if _stop_event.is_set():
+        return None
+    if 'error' in result:
+        raise Exception(result['error'])
+    return result.get('html', '')
+
+
+def _is_golink_error(err_msg: str) -> bool:
+    keywords = [
+        "getaddrinfo", "Name or service", "ERR_NAME_NOT_RESOLVED",
+        "timed out", "timeout", "Connection refused", "No route",
+        "Network is unreachable", "urlopen error",
+    ]
+    return any(k.lower() in err_msg.lower() for k in keywords)
+
+
+def _run_zhannei(domains: List[str], suffix: str, max_pages: int) -> None:
+    """Cào ket qua tu zhannei.baidu.com, ho tro dung nhanh."""
+    global _job_running
+    total_found = 0
+
+    # Dedup domains
+    seen_d: set = set()
+    unique_domains: List[str] = []
+    for d in domains:
+        d = d.strip()
+        if d and d not in seen_d:
+            seen_d.add(d)
+            unique_domains.append(d)
+    skipped = len(domains) - len(unique_domains)
+
+    import urllib.parse
+    import time
+
+    _H = {
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        ),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    }
+
+    try:
+        push_log(f"\U0001f577 Zhannei: {len(unique_domains)} domain, suffix='{suffix}'", "info")
+        if skipped:
+            push_log(f"\u26a0\ufe0f Da bo qua {skipped} domain trung lap", "warning")
+
+        # ── Pre-flight: thu tim kiem that de xac nhan GOLINK hoat dong ──
+        push_log("\U0001f50d Kiem tra GOLINK / ket noi zhannei...", "info")
+        _PREFLIGHT_URL = (
+            "https://zhannei.baidu.com/cse/site"
+            "?q=baidu.com+app&click=1&s=&nsid="
+        )
+        try:
+            _pf = _fetch_with_stop(
+                _PREFLIGHT_URL,
+                _H,
+                timeout=8,
+            )
+        except Exception as _pf_err:
+            _em = str(_pf_err)
+            _msg = (
+                "\u274c Khong ket noi duoc zhannei.baidu.com\n"
+                "\u27a1 Vui long bat app GOLINK roi thu lai!"
+                if _is_golink_error(_em)
+                else f"\u274c Loi ket noi: {_em}"
+            )
+            push_log(_msg, "error")
+            push({"type": "zhannei_error", "message": _msg})
+            push({"type": "zhannei_done", "total_domains": 0, "total_results": 0})
+            return
+
+        if _pf is None:           # User nhan Dung trong khi pre-flight
+            push_log("\u23f9 Da dung.", "warning")
+            push({"type": "zhannei_done", "total_domains": 0, "total_results": 0})
+            return
+
+        # Kiem tra noi dung: can co chu Han hoac result block
+        # Neu khong co → zhannei khong tra ket qua → can GOLINK
+        import re as _re_pf
+        _has_chinese = bool(_re_pf.search(r'[\u4e00-\u9fff]', _pf))
+        _has_results = '<div class="result' in _pf or 'class="c-showurl"' in _pf
+        if not _has_chinese and not _has_results:
+            _msg = (
+                "\u274c Zhannei khong tra ve du lieu tieng Trung.\n"
+                "\u27a1 Vui long bat app GOLINK roi thu lai!"
+            )
+            push_log(_msg, "error")
+            push({"type": "zhannei_error", "message": _msg})
+            push({"type": "zhannei_done", "total_domains": 0, "total_results": 0})
+            return
+
+        push_log("\u2705 GOLINK OK \u2014 bat dau cao du lieu...", "success")
+
+        # ── Main loop ──────────────────────────────────────────────────
+        for domain in unique_domains:
+            if _stop_event.is_set():
+                push_log("\u23f9 Dung theo yeu cau.", "warning")
+                break
+
+            push_log(f"\U0001f310 {domain} + '{suffix}'", "info")
+            push({"type": "zhannei_sep", "domain": domain, "suffix": suffix})
+            domain_count = 0
+
+            for page_idx in range(max_pages):
+                if _stop_event.is_set():
+                    push_log("\u23f9 Dung.", "warning")
+                    break
+
+                q = f"{domain} {suffix}"
+                url = (
+                    f"https://zhannei.baidu.com/cse/site"
+                    f"?q={urllib.parse.quote_plus(q)}&click=1&s=&nsid="
+                    if page_idx == 0
+                    else
+                    f"https://zhannei.baidu.com/cse/site"
+                    f"?q={urllib.parse.quote(q)}&p={page_idx}&nsid=&cc="
+                )
+                push_log(f"  \U0001f4c4 Trang {page_idx + 1}", "info")
+
+                try:
+                    html_text = _fetch_with_stop(url, _H, timeout=12)
+                except Exception as ex:
+                    err_s = str(ex)
+                    if _is_golink_error(err_s):
+                        push_log(
+                            "\u274c Mat ket noi \u2014 Vui long kiem tra GOLINK!",
+                            "error",
+                        )
+                        push({"type": "zhannei_error",
+                              "message": "\u274c Mat ket noi \u2014 Vui long bat GOLINK!"})
+                        push({"type": "zhannei_done",
+                              "total_domains": len(unique_domains),
+                              "total_results": total_found})
+                        return
+                    push_log(f"  \u274c Loi: {err_s}", "error")
+                    break
+
+                if html_text is None:           # Dung giua trang
+                    push_log("\u23f9 Dung giua trang, giu ket qua.", "warning")
+                    break
+
+                # Parse result blocks
+                starts = [m.start() for m in _re.finditer(r'<div class="result\b', html_text)]
+                if not starts:
+                    push_log(f"  \u26a0\ufe0f Khong co ket qua trang {page_idx + 1}", "warning")
+                    break
+
+                footer_m = _re.search(r'id="pageFooter"', html_text)
+                area_end = footer_m.start() if footer_m else len(html_text)
+                page_count = 0
+
+                for i, start in enumerate(starts):
+                    if start >= area_end:
+                        break
+                    end = starts[i + 1] if i + 1 < len(starts) else area_end
+                    block = html_text[start:end]
+
+                    tm = _re.search(r'cpos=["\']title["\'][^>]*>(.*?)</a>', block, _re.DOTALL)
+                    if not tm:
+                        continue
+                    title = _re.sub(r'<[^>]+>', '', tm.group(1))
+                    title = _re.sub(r'\s+', ' ', title).strip()
+                    keyword = _extract_keyword(title)
+
+                    sm = _re.search(r'class="c-showurl">(.*?)</span>', block, _re.DOTALL)
+                    showurl = _re.sub(r'<[^>]+>', '', sm.group(1)).strip() if sm else ''
+                    base_domain = _extract_base_domain(showurl) or domain
+
+                    if keyword:
+                        push({"type": "zhannei_result",
+                              "keyword": keyword, "title": title, "domain": base_domain})
+                        domain_count += 1
+                        total_found += 1
+                        page_count += 1
+
+                push_log(f"  \u2705 Trang {page_idx + 1}: {page_count} ket qua", "success")
+
+                if not _re.search(r'class="pager-next-foot', html_text):
+                    break
+                time.sleep(0.3)
+
+            push_log(f"\u2705 {domain}: {domain_count} ket qua", "success")
+
+        push_log(
+            f"\U0001f389 Xong! {total_found} ket qua / {len(unique_domains)} domain",
+            "success",
+        )
+        push({"type": "zhannei_done",
+              "total_domains": len(unique_domains), "total_results": total_found})
+
+    except Exception as e:
+        push_log(f"\u274c Loi Zhannei: {e}", "error")
+        push({"type": "zhannei_done",
+              "total_domains": len(unique_domains), "total_results": total_found})
+    finally:
+        _job_running = False
+
+
+
+class ZhanneiRequest(BaseModel):
+    domains: List[str]
+    suffix: str = "app"
+    max_pages: int = 2
+
+
+@app.post("/api/zhannei")
+async def api_zhannei(req: ZhanneiRequest):
+    global _job_running
+    if _job_running:
+        raise HTTPException(409, "Đang có tác vụ chạy. Nhấn Dừng trước.")
+    if not req.domains:
+        raise HTTPException(400, "Vui lòng nhập ít nhất một domain")
+    _job_running = True
+    _stop_event.clear()
+    push_log(f"\U0001f577 Bat dau Zhannei \u2014 {len(req.domains)} domain, suffix='{req.suffix}'", "info")
+    threading.Thread(
+        target=_run_zhannei,
+        args=(req.domains, req.suffix, min(req.max_pages, 10)),
+        daemon=True
+    ).start()
+    return {"ok": True}
+
 def _run_auto_baidu_keywords_only(headless: bool = False) -> None:
     """Chỉ chạy Bước 1+2: lấy gợi ý keywords từ Baidu và ghi vào bảng. KHÔNG tìm title."""
     global _job_running
