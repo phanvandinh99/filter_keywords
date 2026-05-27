@@ -48,6 +48,10 @@ from constants import (
 
 logger = logging.getLogger()
 
+# PID Chrome dang chay — duoc set truoc khi launch, xoa sau khi close.
+# app.py co the doc bien nay de force-kill khi nguoi dung nhan Dung.
+_active_pid: Optional[int] = None
+
 # Selector kết hợp để dùng với wait_for_selector
 _RESULT_SELECTOR = ", ".join(SELECTORS["result_container"])
 
@@ -986,8 +990,8 @@ def _kill_browser_pid(pid: int) -> None:
         pass
     except Exception:
         pass
-    # Chờ process thoát hẳn (tối đa 10s)
-    deadline = time.time() + 10
+    # Chờ process thoát hẳn (tối đa 2s — Chrome chết nhanh sau SIGKILL)
+    deadline = time.time() + 2
     while time.time() < deadline:
         try:
             still_alive = any(
@@ -999,8 +1003,8 @@ def _kill_browser_pid(pid: int) -> None:
                 break
         except Exception:
             break
-        time.sleep(0.5)
-    time.sleep(2.0)  # buffer cho OS giải phóng file handle & profile lock
+        time.sleep(0.3)
+    time.sleep(0.3)  # buffer tối thiểu cho OS
 
 
 def _kill_all_chrome_on_profile(profile_path: str) -> None:
@@ -1026,8 +1030,8 @@ def _kill_all_chrome_on_profile(profile_path: str) -> None:
         pass
     if killed_pids:
         logger.info(f"[🔒] Đã kill {len(killed_pids)} Chrome process dùng profile cũ: {killed_pids}")
-        # Chờ các process thoát hẳn
-        deadline = time.time() + 10
+        # Chờ các process thoát hẳn (tối đa 2s)
+        deadline = time.time() + 2
         while time.time() < deadline:
             still_any = False
             try:
@@ -1039,8 +1043,8 @@ def _kill_all_chrome_on_profile(profile_path: str) -> None:
                 break
             if not still_any:
                 break
-            time.sleep(0.5)
-        time.sleep(2.0)  # buffer cho OS giải phóng profile lock
+            time.sleep(0.3)
+        time.sleep(0.3)  # buffer tối thiểu
 
 
 def _clear_browser_cache(page) -> None:
@@ -1196,35 +1200,47 @@ def _launch_browser(p, use_temp_profile: bool = False, headless: bool = False, l
 def _close_browser(browser, browser_context, browser_pid, temp_dir=None) -> None:
     """Đóng browser hoàn toàn và xóa profile tạm nếu có.
 
-    Gọi browser_context.close() trực tiếp trên thread hiện tại (bắt buộc bởi
-    Playwright greenlet). Dùng watchdog thread để force kill nếu close() bị treo.
+    Kiểm tra Chrome còn sống không trước khi gọi close() — tránh treo 15s
+    khi Chrome đã bị force-kill từ bên ngoài (api_stop).
     """
     logger.info(f"[DEBUG] _close_browser: context={browser_context is not None}, "
                 f"pid={browser_pid}, temp={temp_dir}")
 
     graceful_ok = False
 
-    # Watchdog: nếu close() treo quá 15s → force kill
-    watchdog_fired = threading.Event()
-    def _watchdog():
-        if not watchdog_fired.wait(timeout=15):
-            logger.warning("[⚠️] close() treo quá 15s → force kill Chrome")
-            if browser_pid:
-                _kill_browser_pid(browser_pid)
+    # Kiểm tra Chrome còn sống không (tránh gọi close() khi đã chết)
+    chrome_alive = False
+    if browser_pid:
+        try:
+            p = psutil.Process(browser_pid)
+            chrome_alive = p.is_running() and p.status() != psutil.STATUS_ZOMBIE
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            chrome_alive = False
+    else:
+        chrome_alive = True  # Không có PID → assume alive, thử close
 
     if browser_context is not None:
-        # Khởi động watchdog trước khi gọi close
-        wd = threading.Thread(target=_watchdog, daemon=True)
-        wd.start()
-
-        try:
-            browser_context.close()
-            graceful_ok = True
-            logger.info("[✅] Browser context đã đóng sạch")
-        except Exception as e:
-            logger.warning(f"[⚠️] browser_context.close() lỗi: {e}")
-        finally:
-            watchdog_fired.set()  # Hủy watchdog
+        if not chrome_alive:
+            # Chrome đã chết (bị force-kill) — bỏ qua graceful close ngay
+            logger.info("[🔒] Chrome đã tắt trước (force-killed) — bỏ qua context.close()")
+        else:
+            # Watchdog: nếu close() treo quá 4s → force kill
+            watchdog_fired = threading.Event()
+            def _watchdog():
+                if not watchdog_fired.wait(timeout=4):
+                    logger.warning("[⚠️] close() treo quá 4s → force kill Chrome")
+                    if browser_pid:
+                        _kill_browser_pid(browser_pid)
+            wd = threading.Thread(target=_watchdog, daemon=True)
+            wd.start()
+            try:
+                browser_context.close()
+                graceful_ok = True
+                logger.info("[✅] Browser context đã đóng sạch")
+            except Exception as e:
+                logger.warning(f"[⚠️] browser_context.close() lỗi: {e}")
+            finally:
+                watchdog_fired.set()  # Hủy watchdog
 
     if browser is not None:
         try:
@@ -1232,8 +1248,8 @@ def _close_browser(browser, browser_context, browser_pid, temp_dir=None) -> None
         except Exception:
             pass
 
-    # Force kill chỉ khi graceful close thất bại
-    if not graceful_ok and browser_pid:
+    # Force kill chỉ khi Chrome còn sống và graceful close thất bại
+    if not graceful_ok and chrome_alive and browser_pid:
         logger.info(f"[🔒] Force kill Chrome PID {browser_pid}")
         _kill_browser_pid(browser_pid)
 
@@ -1273,6 +1289,10 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
             mode_label = 'headless' if headless else 'visible'
             logger.info(f"[🌐] Khởi động Chrome ({mode_label}, vị trí: {location})")
             browser, browser_context, _browser_pid, _temp_dir = _launch_browser(p, headless=headless, location=location)
+
+            # Expose PID ra module level để app.py có thể force-kill khi cần
+            import search_keywords as _self_module
+            _self_module._active_pid = _browser_pid
 
             page = browser_context.new_page()
             recent_responses, recent_failed_requests, recent_console = _setup_debug_handlers(page)
@@ -1425,6 +1445,10 @@ def _search_keywords_common(keywords: List[str], is_detailed: bool = False,
         finally:
             logger.info("[🔒] Đang đóng browser...")
             _close_browser(browser, browser_context, _browser_pid, _temp_dir)
+
+            # Xoa PID sau khi Chrome da dong
+            import search_keywords as _self_module
+            _self_module._active_pid = None
 
             # Dừng playwright (background thread, không block)
             if p is not None:

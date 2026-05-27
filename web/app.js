@@ -506,11 +506,27 @@ function updateProgress(cur, tot, kw, pct) {
 }
 
 function applyResult(msg) {
+  const updated = { title: msg.title || '', domain: msg.domain || '', time_tag: msg.time_tag || '' };
+
+  // ─ Fast path: dùng row_idx (0-based từ backend) → stt = row_idx+1 → getRowNode O(1)
+  if (msg.row_idx >= 0) {
+    const node = gridApi.getRowNode(String(msg.row_idx + 1));
+    if (node && node.data && node.data.keyword === msg.keyword) {
+      gridApi.applyTransaction({ update: [{ ...node.data, ...updated }] });
+      return;
+    }
+  }
+
+  // ─ Fallback: duyệt tất cả node, match theo keyword
+  const rowsToUpdate = [];
   gridApi.forEachNode(n => {
-    if (n.data.keyword === msg.keyword) {
-      n.setData({ ...n.data, title: msg.title, domain: msg.domain, time_tag: msg.time_tag });
+    if (n.data && n.data.keyword === msg.keyword) {
+      rowsToUpdate.push({ ...n.data, ...updated });
     }
   });
+  if (rowsToUpdate.length > 0) {
+    gridApi.applyTransaction({ update: rowsToUpdate });
+  }
 }
 
 async function onSearchDone(msg) {
@@ -518,6 +534,24 @@ async function onSearchDone(msg) {
   document.getElementById('progress-bar-wrap').classList.remove('visible');
   toast(`✅ Xong! Thành công: ${msg.success} | Lỗi: ${msg.error} | Trùng: ${msg.duplicate}`, 'success');
   await loadData();
+
+  // ① Nếu đang ở giai đoạn 1/2 của "Tìm title" (keywords đã hiện trong bảng)
+  //    → đặt timer để tự động kick off giai đoạn 2 sau 1.5s
+  //    (lưu timer ID vào _phase2Timer để có thể cancel nếu user start job mới)
+  if (window._autoRunBaiduAfterKeywords) {
+    window._autoRunBaiduAfterKeywords = false;
+    const kwCount = getAllRows().filter(r => r.keyword && r.keyword.trim()).length;
+    if (kwCount > 0) {
+      toast(`🚀 Giai đoạn 2/2 — Bắt đầu tìm title cho ${kwCount} từ khóa trong 1.5s...`, 'info');
+      clearTimeout(window._phase2Timer); // huỷ timer cũ nếu có
+      window._phase2Timer = setTimeout(() => {
+        window._phase2Timer = null;
+        runSearch('baidu');
+      }, 1500);
+    } else {
+      toast('⚠️ Không có từ khóa nào trong bảng để tìm title.', 'warning');
+    }
+  }
 }
 
 // ── Search ─────────────────────────────────────────────────────
@@ -558,6 +592,11 @@ async function loadIpInfo() {
 
 async function runSearch(action) {
   if (isRunning) return;
+  // Hủy phase-2 timer nếu có (tránh race condition khi user start job mới)
+  if (window._phase2Timer) {
+    clearTimeout(window._phase2Timer);
+    window._phase2Timer = null;
+  }
   setRunning(true);
   const headless = document.getElementById('chk-headless').checked;
   try {
@@ -790,7 +829,7 @@ async function saveSeedContent() {
 document.getElementById('btn-seed-cancel').onclick = () =>
   document.getElementById('modal-seed').classList.remove('open');
 
-// Chỉ tìm keywords liên quan, KHÔNG tìm title
+// Chỉ tìm keywords liên quan, KHÔNG tìm title (dùng khi muốn xem/lọc danh sách trước)
 document.getElementById('btn-seed-keywords-only').onclick = async () => {
   const content = document.getElementById('seed-content').value.trim();
   if (!content) {
@@ -799,11 +838,14 @@ document.getElementById('btn-seed-keywords-only').onclick = async () => {
   }
   await saveSeedContent();
   document.getElementById('modal-seed').classList.remove('open');
-  toast('Đã lưu — Đang tìm keywords liên quan...', 'info');
+  toast('Đang tìm keywords liên quan...', 'info');
+  window._autoRunBaiduAfterKeywords = false; // chỉ lấy keywords, không tìm title
   runSearch('auto_baidu_keywords_only');
 };
 
-// Tìm keywords liên quan rồi tìm title luôn
+// "Tìm title" = 2 giai đoạn:
+//   Giai đoạn 1/2: Scrape keywords từ seed + nạp vào bảng (user thấy danh sách)
+//   Giai đoạn 2/2: Tự động tìm title sau khi keywords đã hiển thị trên bảng
 document.getElementById('btn-seed-run').onclick = async () => {
   const content = document.getElementById('seed-content').value.trim();
   if (!content) {
@@ -812,9 +854,11 @@ document.getElementById('btn-seed-run').onclick = async () => {
   }
   await saveSeedContent();
   document.getElementById('modal-seed').classList.remove('open');
-  toast('Đã lưu — Đang khởi động Baidu tìm title...', 'info');
-  runSearch('auto_baidu');
+  toast('🔑 Giai đoạn 1/2 — Đang lấy keywords từ Baidu...', 'info');
+  window._autoRunBaiduAfterKeywords = true; // sau khi xong sẽ tự động chạy tìm title
+  runSearch('auto_baidu_keywords_only');
 };
+
 
 // ── KW Files (keywords.txt & priority_titles.txt) ──────────
 function countKwLines(text) {

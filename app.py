@@ -36,6 +36,8 @@ _msg_queue: queue.Queue = queue.Queue()
 _stop_event: threading.Event = threading.Event()
 _job_running: bool = False
 _log_buffer: deque = deque(maxlen=200)   # buffer 200 log gan nhat (cho polling fallback)
+_active_chrome_pid: Optional[int] = None   # PID Chrome dang chay (de force-kill khi dung)
+
 
 # ── JSON helpers ───────────────────────────────────────────────────────────────
 
@@ -419,7 +421,20 @@ class WSStream:
     def __init__(self, original_stream):
         self.original_stream = original_stream
     def write(self, text):
-        self.original_stream.write(text)
+        # Ghi ra console gốc — bỏ qua nếu console Windows không encode được emoji
+        try:
+            self.original_stream.write(text)
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            try:
+                # Fallback: ghi phiên bản ASCII (thay emoji bằng ?)
+                self.original_stream.write(
+                    text.encode('ascii', errors='replace').decode('ascii')
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass
+        # Luôn push qua WebSocket (UTF-8 không bị giới hạn như console)
         text_str = text.strip()
         if text_str:
             level = "info"
@@ -429,7 +444,11 @@ class WSStream:
             elif "🚀" in text_str: level = "search"
             push_log(text_str, level)
     def flush(self):
-        self.original_stream.flush()
+        try:
+            self.original_stream.flush()
+        except Exception:
+            pass
+
 
 # ── Zhannei scraper ────────────────────────────────────────────────────────────
 
@@ -744,7 +763,7 @@ def _run_auto_baidu_keywords_only(headless: bool = False) -> None:
         try:
             import auto_browser_scraper
             auto_browser_scraper.interrupted = False
-            new_kws = getnewkeywords_run() or set()
+            new_kws = getnewkeywords_run(log_func=push_log) or set()
         finally:
             sys.stdout = original_stdout
 
@@ -775,17 +794,22 @@ def _run_auto_baidu_keywords_only(headless: bool = False) -> None:
             })
         write_data({"rows": new_rows})
 
-        try:
-            from utils import write_keywords_to_excel
-            write_keywords_to_excel(keywords_list)
-        except Exception as ex:
-            push_log(f"⚠️ Không thể lưu đồng bộ vào Excel: {ex}", "warning")
-
-        # Refresh UI grid
+        # Refresh UI NGAY (không chờ Excel)
         push({"type": "refresh_data", "rows": new_rows})
         push_log(f"✅ Hoàn thành! Đã thêm {len(keywords_list)} từ khóa mới vào bảng. Bạn có thể nhấn Baidu để tìm title tiếp.", "success")
         push_done(len(keywords_list), 0, 0, len(keywords_list))
         done_pushed = True
+
+        # Ghi Excel trong background (không block UI)
+        def _save_excel():
+            try:
+                from utils import write_keywords_to_excel
+                write_keywords_to_excel(keywords_list)
+                push_log(f"💾 Đã lưu {len(keywords_list)} từ khóa vào Excel.", "info")
+            except Exception as ex:
+                push_log(f"⚠️ Không thể lưu vào Excel: {ex}", "warning")
+        threading.Thread(target=_save_excel, daemon=True).start()
+
 
     except Exception as e:
         push_log(f"❌ Lỗi trong luồng tự động: {e}", "error")
@@ -815,7 +839,7 @@ def _run_auto_baidu(headless: bool = False) -> None:
             # Reset global interrupted state in scraper just in case
             import auto_browser_scraper
             auto_browser_scraper.interrupted = False
-            new_kws = getnewkeywords_run() or set()
+            new_kws = getnewkeywords_run(log_func=push_log) or set()
         finally:
             sys.stdout = original_stdout
 
@@ -845,15 +869,19 @@ def _run_auto_baidu(headless: bool = False) -> None:
                 "main_title": ""
             })
         write_data({"rows": new_rows})
-        
-        try:
-            from utils import write_keywords_to_excel
-            write_keywords_to_excel(keywords_list)
-        except Exception as ex:
-            push_log(f"⚠️ Không thể lưu đồng bộ vào Excel: {ex}", "warning")
+
+        # Ghi Excel trong background — không block bước 3
+        def _save_excel_bg():
+            try:
+                from utils import write_keywords_to_excel
+                write_keywords_to_excel(keywords_list)
+            except Exception as ex:
+                push_log(f"⚠️ Không thể lưu vào Excel: {ex}", "warning")
+        threading.Thread(target=_save_excel_bg, daemon=True).start()
 
         # Refresh the UI grid rows
         push({"type": "refresh_data", "rows": new_rows})
+
         
         # Step 3: Baidu search
         push_log(f"🔍 [Bước 3/3] Đang tự động tìm kiếm Baidu cho {len(keywords_list)} từ khóa mới...", "info")
@@ -1061,13 +1089,57 @@ async def api_search(action: str, req: SearchRequest = None):
 
 @app.post("/api/stop")
 async def api_stop():
+    global _job_running
     _stop_event.set()
+
+    # ── Force-kill Chrome ngay lập tức (không chờ graceful close) ──
+    # Lý do: browser_context.close() có thể mất 15-30s, người dùng cần phản hồi tức thì
+    def _kill_chrome_now():
+        # 1. Kill qua PID được track từ search_keywords module
+        killed = False
+        for mod_name in ("search_keywords", "sogou_search", "google_search"):
+            try:
+                import importlib
+                mod = importlib.import_module(mod_name)
+                pid = getattr(mod, "_active_pid", None)
+                if pid:
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(pid)],
+                        capture_output=True, timeout=5
+                    )
+                    push_log(f"🔪 Force-kill Chrome PID {pid}", "warning")
+                    killed = True
+            except Exception:
+                pass
+
+        # 2. Fallback: kill Chrome process đang dùng profile tool (an toàn hơn /IM chrome.exe)
+        if not killed:
+            try:
+                from config import PROFILE_PATH
+                profile_norm = str(PROFILE_PATH).replace("\\", "/").lower()
+                import psutil
+                for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+                    try:
+                        if "chrome" in (proc.info["name"] or "").lower():
+                            cmd = " ".join(proc.info["cmdline"] or []).replace("\\", "/").lower()
+                            if profile_norm in cmd:
+                                proc.kill()
+                                push_log(f"🔪 Killed Chrome PID {proc.info['pid']} (profile match)", "warning")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+    # Chạy kill trong background thread (không block response)
+    threading.Thread(target=_kill_chrome_now, daemon=True).start()
+
     try:
         import auto_browser_scraper
         auto_browser_scraper.interrupted = True
     except Exception:
         pass
-    push_log("⏹ Đang dừng tác vụ...", "warning")
+
+    push_log("⏹ Đã gửi lệnh dừng — Chrome sẽ tắt ngay...", "warning")
     return {"ok": True}
 
 

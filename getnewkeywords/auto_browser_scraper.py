@@ -219,10 +219,11 @@ def save_results(all_keywords: set, existing_keywords: set) -> set:
         return set()
 
 
-def run() -> set:
+def run(log_func=None) -> set:
     """
     Hàm chính — có thể gọi từ bên ngoài (ví dụ: từ main.py của project cha).
     Trả về tập từ khóa MỚI thu thập được (set), hoặc set rỗng nếu không có gì.
+    log_func: optional callback(text, level='info') — gọi khi có tiến trình keyword
     """
     global all_collected_keywords, interrupted
     all_collected_keywords = set()
@@ -284,7 +285,11 @@ def run() -> set:
 
                 keyword = input_keywords[keyword_index]
                 i = keyword_index + 1
-                print(f"\n[{i}/{len(input_keywords)}] {keyword}")
+                if log_func:
+                    # Gọi callback trực tiếp — không dùng print để tránh log 2 lần
+                    log_func(f"[{i}/{len(input_keywords)}] {keyword}", "info")
+                else:
+                    print(f"\n[{i}/{len(input_keywords)}] {keyword}")
 
                 keywords, captcha_detected = scrape_keywords_for_keyword(page, keyword)
 
