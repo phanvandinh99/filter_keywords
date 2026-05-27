@@ -30,10 +30,12 @@ app = FastAPI(title="Keyword Tool", docs_url=None, redoc_url=None)
 WEB_DIR.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
-# ── Global job state ───────────────────────────────────────────────────────────
+# ── Global job state ──────────────────────────────────────────────────────
+from collections import deque
 _msg_queue: queue.Queue = queue.Queue()
 _stop_event: threading.Event = threading.Event()
 _job_running: bool = False
+_log_buffer: deque = deque(maxlen=200)   # buffer 200 log gan nhat (cho polling fallback)
 
 # ── JSON helpers ───────────────────────────────────────────────────────────────
 
@@ -58,7 +60,11 @@ def push(msg: dict) -> None:
     _msg_queue.put(msg)
 
 def push_log(text: str, level: str = "info") -> None:
-    push({"type": "log", "level": level, "text": text})
+    import time as _time
+    entry = {"type": "log", "level": level, "text": text,
+             "ts": _time.strftime("%H:%M:%S")}
+    _log_buffer.append(entry)
+    push(entry)
 
 def push_progress(current: int, total: int, keyword: str) -> None:
     pct = int(current / total * 100) if total > 0 else 0
@@ -707,11 +713,22 @@ async def api_zhannei(req: ZhanneiRequest):
     ).start()
     return {"ok": True}
 
+@app.get("/api/zhannei/status")
+async def api_zhannei_status(since: int = 0):
+    """Polling fallback: tra ve trang thai job va log buffer tu vi tri 'since'."""
+    logs = list(_log_buffer)
+    return {
+        "running": _job_running,
+        "log_count": len(logs),
+        "logs": logs[since:],   # chi tra logs moi (tu index 'since')
+    }
+
 def _run_auto_baidu_keywords_only(headless: bool = False) -> None:
     """Chỉ chạy Bước 1+2: lấy gợi ý keywords từ Baidu và ghi vào bảng. KHÔNG tìm title."""
     global _job_running
     done_pushed = False
     try:
+
         _stop_event.clear()
 
         push_log("🚀 [Bước 1/2] Đang lấy gợi ý từ khóa mới từ Baidu (Scraper)...", "info")

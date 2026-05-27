@@ -1099,15 +1099,50 @@ document.getElementById('btn-zhannei-run').onclick = async () => {
     });
     if (!res.ok) {
       const err = await res.json();
-      toast(err.detail || 'L\u1ed7i Zhannei', 'error');
+      toast(err.detail || 'Lỗi Zhannei', 'error');
+      _zhanneiRunning = false;
       document.getElementById('btn-zhannei-run').disabled = false;
-      document.getElementById('btn-zhannei-run').textContent = '\uD83D\uDD77 B\u1eaft \u0111\u1ea7u t\u00ecm';
+      document.getElementById('btn-zhannei-run').textContent = '🕷 Bắt đầu tìm';
       document.getElementById('btn-zhannei-stop').style.display = 'none';
+      return;
     }
+    // ── Polling fallback (hiện log ngay cả khi WebSocket bị ngắt) ──
+    let _pollLogIndex = 0;
+    clearInterval(window._zhanneiPollTimer);
+    window._zhanneiPollTimer = setInterval(async () => {
+      if (!_zhanneiRunning) { clearInterval(window._zhanneiPollTimer); return; }
+      try {
+        const r = await fetch(`/api/zhannei/status?since=${_pollLogIndex}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        // Cộng dồn log mới vào panel (tránh trùng với WebSocket)
+        for (const entry of (d.logs || [])) {
+          // Chỉ thêm nếu text chưa có trong log panel (so sánh text)
+          const logEl = document.getElementById('zhannei-log-body');
+          const already = logEl && [...logEl.children].some(c => c.textContent.includes(entry.text.slice(0, 30)));
+          if (!already) appendZhanneiLog(entry.text, entry.level);
+        }
+        _pollLogIndex = d.log_count;  // cập nhật vị trí
+        // Nếu server báo job done → dừng poll
+        if (!d.running && _zhanneiRunning) {
+          // Không có zhannei_done qua WS → tự reset
+          setTimeout(() => {
+            if (_zhanneiRunning) {
+              _zhanneiRunning = false;
+              const summary = `✅ Xong! ${zhanneiResults.length} kết quả`;
+              document.getElementById('zhannei-status').textContent = summary;
+              zhanneiResetUI();
+            }
+          }, 2000);
+        }
+      } catch (_) { /* bỏ qua lỗi mạng tạm thời */ }
+    }, 1500);
+
   } catch (e) {
-    toast('L\u1ed7i: ' + e.message, 'error');
+    toast('Lỗi: ' + e.message, 'error');
+    _zhanneiRunning = false;
     document.getElementById('btn-zhannei-run').disabled = false;
-    document.getElementById('btn-zhannei-run').textContent = '\uD83D\uDD77 B\u1eaft \u0111\u1ea7u t\u00ecm';
+    document.getElementById('btn-zhannei-run').textContent = '🕷 Bắt đầu tìm';
     document.getElementById('btn-zhannei-stop').style.display = 'none';
   }
 };
