@@ -425,6 +425,77 @@ class WSStream:
     def flush(self):
         self.original_stream.flush()
 
+def _run_auto_baidu_keywords_only(headless: bool = False) -> None:
+    """Chỉ chạy Bước 1+2: lấy gợi ý keywords từ Baidu và ghi vào bảng. KHÔNG tìm title."""
+    global _job_running
+    done_pushed = False
+    try:
+        _stop_event.clear()
+
+        push_log("🚀 [Bước 1/2] Đang lấy gợi ý từ khóa mới từ Baidu (Scraper)...", "info")
+        import sys
+        _GETNEWKEYWORDS_DIR = BASE_DIR / "getnewkeywords"
+        if str(_GETNEWKEYWORDS_DIR) not in sys.path:
+            sys.path.insert(0, str(_GETNEWKEYWORDS_DIR))
+
+        from auto_browser_scraper import run as getnewkeywords_run
+
+        original_stdout = sys.stdout
+        sys.stdout = WSStream(original_stdout)
+        try:
+            import auto_browser_scraper
+            auto_browser_scraper.interrupted = False
+            new_kws = getnewkeywords_run() or set()
+        finally:
+            sys.stdout = original_stdout
+
+        if _stop_event.is_set() or auto_browser_scraper.interrupted:
+            push_log("⏹ Đã dừng theo yêu cầu.", "warning")
+            return
+
+        if not new_kws:
+            push_log("⚠️ Không lấy được từ khóa gợi ý nào mới (hoặc đã trùng hết).", "warning")
+            push_done(0, 0, 0, 0)
+            done_pushed = True
+            return
+
+        keywords_list = sorted(list(new_kws))
+        push_log(f"✅ Đã lấy gợi ý thành công! Nhận được {len(keywords_list)} từ khóa mới.", "success")
+
+        # Bước 2: Ghi keywords vào bảng (không tìm title)
+        push_log(f"📝 [Bước 2/2] Đang cập nhật {len(keywords_list)} từ khóa vào bảng...", "info")
+        new_rows = []
+        for i, kw in enumerate(keywords_list, 1):
+            new_rows.append({
+                "stt": i,
+                "keyword": kw,
+                "title": "",
+                "domain": "",
+                "time_tag": "",
+                "main_title": ""
+            })
+        write_data({"rows": new_rows})
+
+        try:
+            from utils import write_keywords_to_excel
+            write_keywords_to_excel(keywords_list)
+        except Exception as ex:
+            push_log(f"⚠️ Không thể lưu đồng bộ vào Excel: {ex}", "warning")
+
+        # Refresh UI grid
+        push({"type": "refresh_data", "rows": new_rows})
+        push_log(f"✅ Hoàn thành! Đã thêm {len(keywords_list)} từ khóa mới vào bảng. Bạn có thể nhấn Baidu để tìm title tiếp.", "success")
+        push_done(len(keywords_list), 0, 0, len(keywords_list))
+        done_pushed = True
+
+    except Exception as e:
+        push_log(f"❌ Lỗi trong luồng tự động: {e}", "error")
+    finally:
+        _job_running = False
+        if not done_pushed:
+            push_done(0, 0, 0, 0)
+
+
 def _run_auto_baidu(headless: bool = False) -> None:
     global _job_running
     done_pushed = False
@@ -649,16 +720,34 @@ async def api_search(action: str, req: SearchRequest = None):
             with open(input_file, 'w', encoding='utf-8') as f:
                 f.write("# Danh sách từ khóa cần lấy gợi ý từ Baidu (mỗi từ khóa một dòng)\n")
             raise HTTPException(400, "Không tìm thấy từ khóa mới! Đã tạo file mẫu, vui lòng thêm từ khóa mới.")
-        
+
         # Check if there are valid non-comment keywords
         lines = [l.strip() for l in input_file.read_text(encoding="utf-8").splitlines() if l.strip()]
         words = [l for l in lines if not l.startswith("#")]
         if not words:
             _job_running = False
             raise HTTPException(400, "Danh sách từ khóa mới đang trống! Vui lòng nhập từ khóa mới.")
-        
+
         push_log(f"🚀 Bắt đầu Tự Động: Lấy gợi ý + Tìm kiếm Baidu ({mode})", "info")
         threading.Thread(target=_run_auto_baidu, args=(headless,), daemon=True).start()
+        return {"ok": True, "total": 0}
+
+    if action == "auto_baidu_keywords_only":
+        input_file = BASE_DIR / "input_keywords.txt"
+        if not input_file.exists():
+            _job_running = False
+            with open(input_file, 'w', encoding='utf-8') as f:
+                f.write("# Danh sách từ khóa cần lấy gợi ý từ Baidu (mỗi từ khóa một dòng)\n")
+            raise HTTPException(400, "Không tìm thấy từ khóa mới! Đã tạo file mẫu, vui lòng thêm từ khóa mới.")
+
+        lines = [l.strip() for l in input_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+        words = [l for l in lines if not l.startswith("#")]
+        if not words:
+            _job_running = False
+            raise HTTPException(400, "Danh sách từ khóa mới đang trống! Vui lòng nhập từ khóa mới.")
+
+        push_log(f"🔑 Bắt đầu: Chỉ lấy Keywords mới từ Baidu (không tìm title) ({mode})", "info")
+        threading.Thread(target=_run_auto_baidu_keywords_only, args=(headless,), daemon=True).start()
         return {"ok": True, "total": 0}
 
     data = read_data()

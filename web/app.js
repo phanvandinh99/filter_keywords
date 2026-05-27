@@ -487,6 +487,8 @@ function setRunning(v) {
   // Disable/enable nút trong modal seed khi đang chạy
   const seedRun = document.getElementById('btn-seed-run');
   if (seedRun) seedRun.disabled = v;
+  const seedKwOnly = document.getElementById('btn-seed-keywords-only');
+  if (seedKwOnly) seedKwOnly.disabled = v;
 }
 
 async function loadIpInfo() {
@@ -740,6 +742,20 @@ async function saveSeedContent() {
 document.getElementById('btn-seed-cancel').onclick = () =>
   document.getElementById('modal-seed').classList.remove('open');
 
+// Chỉ tìm keywords liên quan, KHÔNG tìm title
+document.getElementById('btn-seed-keywords-only').onclick = async () => {
+  const content = document.getElementById('seed-content').value.trim();
+  if (!content) {
+    toast('Vui lòng nhập ít nhất một từ khóa seed', 'info');
+    return;
+  }
+  await saveSeedContent();
+  document.getElementById('modal-seed').classList.remove('open');
+  toast('Đã lưu — Đang tìm keywords liên quan...', 'info');
+  runSearch('auto_baidu_keywords_only');
+};
+
+// Tìm keywords liên quan rồi tìm title luôn
 document.getElementById('btn-seed-run').onclick = async () => {
   const content = document.getElementById('seed-content').value.trim();
   if (!content) {
@@ -748,7 +764,7 @@ document.getElementById('btn-seed-run').onclick = async () => {
   }
   await saveSeedContent();
   document.getElementById('modal-seed').classList.remove('open');
-  toast('Đã lưu — Đang khởi động Baidu từ mới...', 'info');
+  toast('Đã lưu — Đang khởi động Baidu tìm title...', 'info');
   runSearch('auto_baidu');
 };
 
