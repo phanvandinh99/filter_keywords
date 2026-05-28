@@ -557,7 +557,7 @@ async function onSearchDone(msg) {
 // ── Search ─────────────────────────────────────────────────────
 function setRunning(v) {
   isRunning = v;
-  ['btn-baidu','btn-baidu-detail','btn-auto-baidu','btn-google','btn-sogou'].forEach(id => {
+  ['btn-baidu','btn-baidu-detail','btn-auto-baidu','btn-hottrend','btn-google','btn-sogou'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.disabled = v;
   });
@@ -571,6 +571,11 @@ function setRunning(v) {
   if (seedRun) seedRun.disabled = v;
   const seedKwOnly = document.getElementById('btn-seed-keywords-only');
   if (seedKwOnly) seedKwOnly.disabled = v;
+  // Disable/enable nút trong modal hottrend riêng
+  const htKwOnly = document.getElementById('btn-hottrend-keywords-only');
+  if (htKwOnly) htKwOnly.disabled = v;
+  const htRun = document.getElementById('btn-hottrend-run');
+  if (htRun) htRun.disabled = v;
 }
 
 async function loadIpInfo() {
@@ -624,6 +629,11 @@ document.getElementById('btn-auto-baidu').onclick = async () => {
   const d = await r.json();
   document.getElementById('seed-content').value = d.content || '';
   openModal('modal-seed', '#seed-content');
+};
+// Nút Hottrend trên toolbar → mở modal hottrend riêng
+document.getElementById('btn-hottrend').onclick = async () => {
+  if (isRunning) { toast('Đang có tác vụ chạy. Nhấn Dừng trước.', 'info'); return; }
+  openModal('modal-hottrend', '#hottrend-seed-content');
 };
 document.getElementById('btn-google').onclick = () => runSearch('google');
 document.getElementById('btn-sogou').onclick = () => runSearch('sogou');
@@ -843,9 +853,7 @@ document.getElementById('btn-seed-keywords-only').onclick = async () => {
   runSearch('auto_baidu_keywords_only');
 };
 
-// "Tìm title" = 2 giai đoạn:
-//   Giai đoạn 1/2: Scrape keywords từ seed + nạp vào bảng (user thấy danh sách)
-//   Giai đoạn 2/2: Tự động tìm title sau khi keywords đã hiển thị trên bảng
+// "Tìm title" = 2 giai đoạn
 document.getElementById('btn-seed-run').onclick = async () => {
   const content = document.getElementById('seed-content').value.trim();
   if (!content) {
@@ -855,10 +863,75 @@ document.getElementById('btn-seed-run').onclick = async () => {
   await saveSeedContent();
   document.getElementById('modal-seed').classList.remove('open');
   toast('🔑 Giai đoạn 1/2 — Đang lấy keywords từ Baidu...', 'info');
-  window._autoRunBaiduAfterKeywords = true; // sau khi xong sẽ tự động chạy tìm title
+  window._autoRunBaiduAfterKeywords = true;
   runSearch('auto_baidu_keywords_only');
 };
 
+
+
+// ── Modal Hottrend riêng ──────────────────────────────────────────
+document.getElementById('btn-hottrend-cancel').onclick = () =>
+  document.getElementById('modal-hottrend').classList.remove('open');
+
+// Hàm tiện ích: lấy danh sách seed từ textarea hottrend
+function getHottrendSeeds() {
+  const content = document.getElementById('hottrend-seed-content').value.trim();
+  return content.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+}
+
+// Nút "🔥 Lấy Keywords" — chỉ lấy hottrend vào bảng, không tìm title
+document.getElementById('btn-hottrend-keywords-only').onclick = async () => {
+  const seeds = getHottrendSeeds();
+  if (!seeds.length) { toast('Vui lòng nhập ít nhất một từ khóa seed', 'info'); return; }
+  if (isRunning) { toast('Đang có tác vụ chạy. Nhấn Dừng trước.', 'info'); return; }
+  document.getElementById('modal-hottrend').classList.remove('open');
+  setRunning(true);
+  const headless = document.getElementById('chk-headless').checked;
+  try {
+    const res = await fetch('/api/search/hottrend_keywords_only', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seed_keywords: seeds, headless }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      toast(err.detail || 'Lỗi khởi động Hottrend', 'error');
+      setRunning(false);
+    } else {
+      toast('🔥 Hottrend đang chạy — tìm kiếm ' + seeds.length + ' seed...', 'info');
+    }
+  } catch (e) {
+    toast('Lỗi: ' + e.message, 'error');
+    setRunning(false);
+  }
+};
+
+// Nút "🚀 Lấy + Tìm Title" — lấy hottrend rồi tự động tìm Baidu title
+document.getElementById('btn-hottrend-run').onclick = async () => {
+  const seeds = getHottrendSeeds();
+  if (!seeds.length) { toast('Vui lòng nhập ít nhất một từ khóa seed', 'info'); return; }
+  if (isRunning) { toast('Đang có tác vụ chạy. Nhấn Dừng trước.', 'info'); return; }
+  document.getElementById('modal-hottrend').classList.remove('open');
+  setRunning(true);
+  const headless = document.getElementById('chk-headless').checked;
+  try {
+    const res = await fetch('/api/search/hottrend_and_search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seed_keywords: seeds, headless }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      toast(err.detail || 'Lỗi khởi động Hottrend+Search', 'error');
+      setRunning(false);
+    } else {
+      toast('🔥🚀 Hottrend + Tìm Title đang chạy...', 'info');
+    }
+  } catch (e) {
+    toast('Lỗi: ' + e.message, 'error');
+    setRunning(false);
+  }
+};
 
 // ── KW Files (keywords.txt & priority_titles.txt) ──────────
 function countKwLines(text) {

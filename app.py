@@ -742,6 +742,281 @@ async def api_zhannei_status(since: int = 0):
         "logs": logs[since:],   # chi tra logs moi (tu index 'since')
     }
 
+
+# ── Hottrend Scraper (大家还在搜) ───────────────────────────────────────────────
+
+class _HottrendReq(BaseModel):
+    seed_keywords: List[str] = []
+    headless: bool = False
+
+
+def _run_hottrend_keywords_only(seed_keywords: List[str], headless: bool = False) -> None:
+    """
+    Dùng hottrend_scraper để tìm từ khóa từ phần '大家还在搜' trên m.baidu.com.
+    Tương tự _run_auto_baidu_keywords_only nhưng dùng hottrend_scraper.
+    """
+    global _job_running
+    done_pushed = False
+    try:
+        _stop_event.clear()
+
+        import sys
+        _GETNEWKEYWORDS_DIR = BASE_DIR / "getnewkeywords"
+        if str(_GETNEWKEYWORDS_DIR) not in sys.path:
+            sys.path.insert(0, str(_GETNEWKEYWORDS_DIR))
+
+        import hottrend_scraper
+        hottrend_scraper.interrupted = False
+
+        push_log(f"🔥 Hottrend — Đang tìm từ {len(seed_keywords)} seed keyword trên Baidu...", "info")
+        push_log("=" * 50, "info")
+
+        original_stdout = sys.stdout
+        sys.stdout = WSStream(original_stdout)
+        try:
+            all_kws = hottrend_scraper.run(
+                seed_keywords=seed_keywords,
+                log_func=push_log,
+                stop_event=_stop_event,
+                headless=headless,
+            ) or set()
+        finally:
+            sys.stdout = original_stdout
+
+        if _stop_event.is_set() or hottrend_scraper.interrupted:
+            push_log("⏹ Đã dừng theo yêu cầu.", "warning")
+            push_done(0, 0, 0, 0)
+            done_pushed = True
+            return
+
+        if not all_kws:
+            push_log("⚠️ Không tìm thấy từ khóa hottrend nào (hoặc trang không có phần 大家还在搜).", "warning")
+            push_done(0, 0, 0, 0)
+            done_pushed = True
+            return
+
+        # Dedup với keywords.txt
+        old_kws_set: set = set()
+        try:
+            _kw_file = _GETNEWKEYWORDS_DIR / "keywords.txt"
+            if _kw_file.exists():
+                old_kws_set = {l.strip() for l in _kw_file.read_text(encoding='utf-8').splitlines() if l.strip()}
+        except Exception:
+            pass
+
+        new_kws = sorted(all_kws - old_kws_set)
+        dup_count = len(all_kws) - len(new_kws)
+        push_log(f"📊 Thu thập: {len(all_kws)} | Trùng: {dup_count} | Mới: {len(new_kws)}", "info")
+
+        if not new_kws:
+            push_log("⚠️ Tất cả từ khóa đã tồn tại trong keywords.txt.", "warning")
+            push_done(0, 0, dup_count, len(all_kws))
+            done_pushed = True
+            return
+
+        new_rows = []
+        for i, kw in enumerate(new_kws, 1):
+            new_rows.append({
+                "stt": i,
+                "keyword": kw,
+                "title": "",
+                "domain": "",
+                "time_tag": "",
+                "main_title": "",
+            })
+
+        write_data({"rows": new_rows})
+        push({"type": "refresh_data", "rows": new_rows})
+        push_log(f"✅ Đã thêm {len(new_rows)} từ khóa hottrend vào bảng!", "success")
+        push_done(len(new_rows), 0, dup_count, len(new_rows))
+        done_pushed = True
+
+    except Exception as e:
+        push_log(f"❌ Lỗi hottrend scraper: {e}", "error")
+    finally:
+        _job_running = False
+        if not done_pushed:
+            push_done(0, 0, 0, 0)
+
+
+@app.post("/api/search/hottrend_keywords_only")
+async def api_hottrend_keywords_only(req: _HottrendReq):
+    """
+    Lấy từ khóa hottrend từ phần '大家还在搜' trên m.baidu.com.
+    Nhận seed_keywords trực tiếp từ request body.
+    """
+    global _job_running
+    if _job_running:
+        raise HTTPException(409, "Đang có tác vụ chạy. Nhấn Dừng trước.")
+
+    seed_kws = [kw.strip() for kw in req.seed_keywords if kw.strip()]
+
+    # Nếu không truyền seed_keywords → đọc từ seed file
+    if not seed_kws:
+        try:
+            seed_text = SEED_FILE.read_text(encoding='utf-8') if SEED_FILE.exists() else ""
+            seed_kws = [l.strip() for l in seed_text.splitlines() if l.strip() and not l.startswith('#')]
+        except Exception:
+            pass
+
+    if not seed_kws:
+        raise HTTPException(400, "Chưa có từ khóa seed. Vui lòng nhập từ khóa trước.")
+
+    _job_running = True
+    threading.Thread(
+        target=_run_hottrend_keywords_only,
+        args=(seed_kws, req.headless),
+        daemon=True,
+    ).start()
+    return {"ok": True, "seed_count": len(seed_kws)}
+
+
+def _run_hottrend_and_search(seed_keywords: List[str], headless: bool = False) -> None:
+    """
+    Bước 1: Dùng hottrend_scraper lấy từ khóa từ '大家还在搜'.
+    Bước 2: Tự động tìm Baidu title cho các từ khóa mới đó.
+    """
+    global _job_running
+    done_pushed = False
+    try:
+        _stop_event.clear()
+
+        import sys
+        _GETNEWKEYWORDS_DIR = BASE_DIR / "getnewkeywords"
+        if str(_GETNEWKEYWORDS_DIR) not in sys.path:
+            sys.path.insert(0, str(_GETNEWKEYWORDS_DIR))
+
+        import hottrend_scraper
+        hottrend_scraper.interrupted = False
+
+        push_log(f"🔥 [Bước 1/2] Hottrend — tìm từ {len(seed_keywords)} seed keyword trên Baidu...", "info")
+        push_log("=" * 50, "info")
+
+        original_stdout = sys.stdout
+        sys.stdout = WSStream(original_stdout)
+        try:
+            all_kws = hottrend_scraper.run(
+                seed_keywords=seed_keywords,
+                log_func=push_log,
+                stop_event=_stop_event,
+                headless=headless,
+            ) or set()
+        finally:
+            sys.stdout = original_stdout
+
+        if _stop_event.is_set() or hottrend_scraper.interrupted:
+            push_log("⏹ Đã dừng theo yêu cầu.", "warning")
+            push_done(0, 0, 0, 0)
+            done_pushed = True
+            return
+
+        if not all_kws:
+            push_log("⚠️ Không tìm thấy từ khóa hottrend nào.", "warning")
+            push_done(0, 0, 0, 0)
+            done_pushed = True
+            return
+
+        # Dedup
+        old_kws_set: set = set()
+        try:
+            _kw_file = _GETNEWKEYWORDS_DIR / "keywords.txt"
+            if _kw_file.exists():
+                old_kws_set = {l.strip() for l in _kw_file.read_text(encoding='utf-8').splitlines() if l.strip()}
+        except Exception:
+            pass
+
+        new_kws = sorted(all_kws - old_kws_set)
+        dup_count = len(all_kws) - len(new_kws)
+        push_log(f"📊 Thu thập: {len(all_kws)} | Trùng: {dup_count} | Mới: {len(new_kws)}", "info")
+
+        if not new_kws:
+            push_log("⚠️ Tất cả từ khóa đã tồn tại.", "warning")
+            push_done(0, 0, dup_count, len(all_kws))
+            done_pushed = True
+            return
+
+        # Ghi vào bảng
+        new_rows = []
+        for i, kw in enumerate(new_kws, 1):
+            new_rows.append({"stt": i, "keyword": kw, "title": "", "domain": "", "time_tag": "", "main_title": ""})
+
+        write_data({"rows": new_rows})
+        push({"type": "refresh_data", "rows": new_rows})
+        push_log(f"✅ Đã thêm {len(new_rows)} từ khóa hottrend vào bảng. Bắt đầu tìm title...", "success")
+
+        if _stop_event.is_set():
+            push_done(len(new_rows), 0, dup_count, len(new_rows))
+            done_pushed = True
+            return
+
+        # Bước 2: Tìm Baidu title
+        push_log(f"🔍 [Bước 2/2] Đang tìm title Baidu cho {len(new_rows)} từ khóa...", "info")
+        kw_to_idx = {kw: i for i, kw in enumerate(new_kws)}
+        save_counter = [0]
+
+        def on_progress(idx, total, kw):
+            push_progress(idx, total, kw)
+
+        def on_result(idx, kw, result):
+            title, domain, time_tag, *_ = result
+            row_idx = kw_to_idx.get(kw.strip(), -1)
+            push_result(row_idx, kw, result)
+            if 0 <= row_idx < len(new_rows):
+                new_rows[row_idx]["title"] = title or ""
+                new_rows[row_idx]["domain"] = domain or ""
+                new_rows[row_idx]["time_tag"] = time_tag or ""
+            save_counter[0] += 1
+            if save_counter[0] % 10 == 0:
+                write_data({"rows": new_rows})
+
+        from search_keywords import search_keywords as _search_fn
+        _search_fn(new_kws, on_progress=on_progress, on_result=on_result,
+                   stop_event=_stop_event, headless=headless, location="default")
+
+        write_data({"rows": new_rows})
+        push({"type": "refresh_data", "rows": new_rows})
+
+        success = sum(1 for r in new_rows if r.get("title") and not str(r.get("title", "")).startswith("Lỗi") and r.get("title") != "Trùng lặp từ khóa")
+        errors  = sum(1 for r in new_rows if str(r.get("title", "")).startswith("Lỗi"))
+        dupes   = sum(1 for r in new_rows if r.get("title") == "Trùng lặp từ khóa")
+        push_done(success, errors, dupes + dup_count, len(new_rows))
+        done_pushed = True
+
+    except Exception as e:
+        push_log(f"❌ Lỗi hottrend+search: {e}", "error")
+    finally:
+        _job_running = False
+        if not done_pushed:
+            push_done(0, 0, 0, 0)
+
+
+@app.post("/api/search/hottrend_and_search")
+async def api_hottrend_and_search(req: _HottrendReq):
+    """Lấy hottrend keywords + tự động tìm Baidu title."""
+    global _job_running
+    if _job_running:
+        raise HTTPException(409, "Đang có tác vụ chạy. Nhấn Dừng trước.")
+
+    seed_kws = [kw.strip() for kw in req.seed_keywords if kw.strip()]
+    if not seed_kws:
+        try:
+            seed_text = SEED_FILE.read_text(encoding='utf-8') if SEED_FILE.exists() else ""
+            seed_kws = [l.strip() for l in seed_text.splitlines() if l.strip() and not l.startswith('#')]
+        except Exception:
+            pass
+
+    if not seed_kws:
+        raise HTTPException(400, "Chưa có từ khóa seed. Vui lòng nhập từ khóa trước.")
+
+    _job_running = True
+    threading.Thread(
+        target=_run_hottrend_and_search,
+        args=(seed_kws, req.headless),
+        daemon=True,
+    ).start()
+    return {"ok": True, "seed_count": len(seed_kws)}
+
+
 def _run_auto_baidu_keywords_only(headless: bool = False) -> None:
     """Chỉ chạy Bước 1+2: lấy gợi ý keywords từ Baidu và ghi vào bảng. KHÔNG tìm title."""
     global _job_running
