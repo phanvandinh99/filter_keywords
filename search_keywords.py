@@ -114,6 +114,35 @@ def _extract_title(container: Any) -> str:
 
     return ""
 
+import re as _re_score
+
+# ── Priority markers (dùng chung cho Baidu thường và Baidu 2) ────────────────
+# Title chứa bất kỳ marker nào được cộng thêm điểm ưu tiên mức 2
+# (sau Thời gian đăng, trước các tiêu chí khác).
+_PRIORITY_MARKERS: List[str] = [
+    "安卓版-2265安卓网",
+    "2265安卓网",
+    "2265",
+    "安卓版",
+    "2024最新",
+    "2025最新版",
+    "2026最新版",
+]
+# V/v chỉ match khi theo sau bởi chữ số hoặc dấu chấm:
+#   hợp lệ : v17.9.19, V66.378, v.16.7, V.2
+#   không  : chữ 'v' đơn thuần trong từ tiếng Anh
+_VERSION_MARKER_RE = _re_score.compile(r'[Vv][.\d]')
+
+
+def _has_priority_marker(title: str) -> bool:
+    """Kiểm tra title có chứa bất kỳ priority marker nào không.
+    Dùng cho cả Baidu thường và Baidu 2.
+    """
+    for m in _PRIORITY_MARKERS:
+        if m in title:
+            return True
+    return bool(_VERSION_MARKER_RE.search(title))
+
 
 def _title_match_info(keyword: str, title: str, pos_limit: int = 60) -> Tuple[bool, bool, int, int]:
     """Trả về (match, startswith, pos, len_gap) để ưu tiên title sát keyword.
@@ -133,56 +162,61 @@ def _title_match_info(keyword: str, title: str, pos_limit: int = 60) -> Tuple[bo
 
 
 def _score_result(result: dict) -> float:
-    """Tính điểm composite cho một kết quả tìm kiếm (thang 0–100).
+    """Tính điểm composite cho một kết quả tìm kiếm.
 
-    Cân bằng giữa độ mới (time_tag), chất lượng khớp title, và có domain.
-    Thay thế cách so sánh tuple cũ vốn cho phép thời gian thắng tuyệt đối
-    dù title khớp rất tệ.
+    Thứ tự ưu tiên (từ cao đến thấp):
+      1. Thời gian đăng       : tối đa 38 điểm  (刚刚发布=38, 今日发布=25, 近期发布=12)
+      2. Có domain            :         25 điểm  (kết quả có domain đáng tin hơn)
+      3. Priority marker      :         18 điểm  (安卓版, 2265, v17.9.19...)
+      4. Title bắt đầu bằng kw:         12 điểm
+      5. Vị trí keyword       : tối đa   8 điểm  (pos càng nhỏ càng tốt)
+      6. Độ sát độ dài        : tối đa   4 điểm
 
-    Trọng số:
-      - Thời gian đăng  : tối đa 38 điểm
-      - Title bắt đầu bằng keyword: 25 điểm
-      - Vị trí keyword  : tối đa 22 điểm
-      - Độ sát độ dài   : tối đa 10 điểm
-      - Có domain       :  5 điểm
+    Nguyên tắc trọng số: domain(25) > markers(18) > startswith(12) > pos(8) > len(4)
+    để mức ưu tiên cao hơn luôn có thể thắng tổng các mức thấp hơn.
     """
     score = 0.0
 
-    # 1. Thời gian đăng (0-38 điểm)
+    # 1. Thời gian đăng (0–38 điểm)
     _TIME_SCORES = {"刚刚发布": 38, "今日发布": 25, "近期发布": 12}
     score += _TIME_SCORES.get(result.get("time_tag", ""), 0)
 
-    # 2. Title bắt đầu bằng keyword (25 điểm)
-    if result.get("startswith_kw"):
+    # 2. Có domain (25 điểm) — mức ưu tiên 2
+    if result.get("domain"):
         score += 25
 
-    # 3. Vị trí keyword trong title (0–22 điểm, pos càng nhỏ càng tốt)
+    # 3. Priority marker (18 điểm) — mức ưu tiên 3
+    _t = result.get("original_title") or result.get("title", "")
+    if _has_priority_marker(_t):
+        score += 18
+
+    # 4. Title bắt đầu bằng keyword (12 điểm) — mức ưu tiên 4
+    if result.get("startswith_kw"):
+        score += 12
+
+    # 5. Vị trí keyword trong title (0–8 điểm) — mức ưu tiên 5
     kw_pos = result.get("kw_pos", 9999)
     if kw_pos == 0:
-        score += 22      # đã được startswith tính, cộng thêm để nhấn mạnh
+        score += 8
     elif kw_pos < 10:
-        score += 20
+        score += 7
     elif kw_pos < 25:
-        score += 14
+        score += 5
     elif kw_pos < 50:
-        score += 7
+        score += 3
     elif kw_pos < 120:
-        score += 2
-
-    # 4. Độ sát độ dài (0–10 điểm)
-    len_gap = result.get("len_gap", 9999)
-    if len_gap <= 3:
-        score += 10
-    elif len_gap <= 10:
-        score += 7
-    elif len_gap <= 25:
-        score += 4
-    elif len_gap <= 50:
         score += 1
 
-    # 5. Có domain (5 điểm) — kết quả có domain đáng tin hơn
-    if result.get("domain"):
-        score += 5
+    # 6. Độ sát độ dài (0–4 điểm) — mức ưu tiên 6 (thấp nhất)
+    len_gap = result.get("len_gap", 9999)
+    if len_gap <= 3:
+        score += 4
+    elif len_gap <= 10:
+        score += 3
+    elif len_gap <= 25:
+        score += 2
+    elif len_gap <= 50:
+        score += 1
 
     return score
 
