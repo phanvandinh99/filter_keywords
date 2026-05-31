@@ -460,13 +460,67 @@ ZHANNEI_STRIP_SUFFIXES = [
     r'版下载$', r'版免费版$', r'版官方版$', r'下载$',
 ]
 
-def _extract_keyword(title: str) -> str:
-    """Lấy phần trước dấu '-' đầu tiên rồi strip các suffix quảng cáo."""
+def _extract_keyword(title: str, block: str = "") -> str:
+    """Lấy phần trước dấu '-' đầu tiên rồi strip các suffix quảng cáo, ưu tiên tìm từ khóa khớp trong abstract."""
     if not title:
         return ''
-    # Lấy phần trước '-' đầu tiên
-    part = title.split('-')[0].strip()
-    # Strip các suffix biết trước
+    
+    clean_title = _re.sub(r'<[^>]+>', '', title)
+    clean_title = _re.sub(r'\s+', ' ', clean_title).strip()
+    
+    # 1. Tìm các ứng viên ở c-abstract
+    if block:
+        abstract_m = _re.search(r'class="c-abstract">(.*?)</div>', block, _re.DOTALL)
+        if abstract_m:
+            abstract = abstract_m.group(1)
+            clean_abstract = _re.sub(r'<[^>]+>', '', abstract)
+            clean_abstract = _re.sub(r'\s+', ' ', clean_abstract).strip()
+            
+            candidates = []
+
+            # A. Trích xuất các nội dung trong “”, "", 《》, 【】
+            patterns = [
+                r'“([^”]+)”',
+                r'《([^》]+)》',
+                r'【([^】]+)】',
+                r'"([^"]+)"'
+            ]
+            for pattern in patterns:
+                found = _re.findall(pattern, clean_abstract)
+                for f in found:
+                    candidates.append(f.strip())
+            
+            # B. Trích xuất các khối từ \w+ (bao gồm chữ Trung, Anh, số ngăn cách bởi biểu tượng/emoji/dấu câu/khoảng trắng)
+            words = _re.findall(r'\w+', clean_abstract)
+            for w in words:
+                candidates.append(w.strip())
+
+            # C. Tìm ứng viên dựa trên từ khóa kết thúc bằng "官网-APP下载" (hoặc biến thể)
+            for m in _re.finditer(r'(.*?)(?:官网\s*-\s*(?:APP|app)\s*下载)', clean_abstract, _re.IGNORECASE):
+                prefix_part = m.group(1).strip()
+                if prefix_part:
+                    # Tìm suffix dài nhất của prefix_part mà clean_title bắt đầu bằng nó
+                    for i in range(len(prefix_part)):
+                        sub = prefix_part[i:].strip()
+                        if len(sub) >= 2:
+                            candidates.append(sub)
+
+            # Lọc các ứng viên khớp với phần đầu của title (không phân biệt hoa thường)
+            valid_candidates = []
+            title_lower = clean_title.lower()
+            for cand in candidates:
+                if cand and len(cand) >= 2:
+                    cand_lower = cand.lower()
+                    if title_lower.startswith(cand_lower):
+                        valid_candidates.append(cand)
+            
+            if valid_candidates:
+                # Sắp xếp theo chiều dài giảm dần để ưu tiên từ dài nhất
+                valid_candidates.sort(key=len, reverse=True)
+                return valid_candidates[0]
+
+    # 2. Fallback: logic cũ (chia tách theo '-' và xóa suffix)
+    part = clean_title.split('-')[0].strip()
     for pattern in ZHANNEI_STRIP_SUFFIXES:
         part = _re.sub(pattern, '', part).strip()
     return part
@@ -672,7 +726,7 @@ def _run_zhannei(domains: List[str], suffix: str, max_pages: int) -> None:
                         continue
                     title = _re.sub(r'<[^>]+>', '', tm.group(1))
                     title = _re.sub(r'\s+', ' ', title).strip()
-                    keyword = _extract_keyword(title)
+                    keyword = _extract_keyword(title, block)
 
                     sm = _re.search(r'class="c-showurl">(.*?)</span>', block, _re.DOTALL)
                     showurl = _re.sub(r'<[^>]+>', '', sm.group(1)).strip() if sm else ''
