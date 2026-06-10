@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Tool lọc từ khóa</title>
 <link rel="icon" type="image/png" href="/static/favicon.png">
-<link rel="stylesheet" href="/static/style.css?v=31">
+<link rel="stylesheet" href="/static/style.css?v=32">
 <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.2/dist/ag-grid-community.min.js"></script>
 </head>
 <body>
@@ -101,9 +101,19 @@
   <div class="modal">
     <h2>🚫 Lọc Nhanh</h2>
     <div class="form-group">
-      <label>Áp dụng trên tất cả các cột</label>
-      <textarea id="filter-words-content" rows="10" placeholder="kaiyun => Loại
-!kaiyun => lấy"></textarea>
+      <div class="filter-mode-row">
+        <label class="filter-radio-label">
+          <input type="radio" name="filter-mode" value="exclude" checked>
+          Xóa
+        </label>
+        <label class="filter-radio-label">
+          <input type="radio" name="filter-mode" value="include">
+          Lấy
+        </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <textarea id="filter-words-content" rows="10" placeholder="Nhập từ cần lọc..."></textarea>
     </div>
     <div id="filter-preview" class="filter-preview"></div>
     <div class="modal-footer">
@@ -235,6 +245,6 @@ không gian
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=31"></script>
+<script src="/static/app.js?v=32"></script>
 </body>
 </html>

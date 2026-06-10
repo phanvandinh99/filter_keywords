@@ -672,20 +672,25 @@ function calcFilterResult(rules) {
   const allRows = getAllRows().filter(r => r.keyword || r.title || r.domain || r.main_title);
   if (!rules.length) return { kept: allRows.length, removed: 0, total: allRows.length };
 
-  const excludes = rules.filter(r => !r.startsWith('!')).map(r => r.trim()).filter(Boolean);
-  const includes = rules.filter(r => r.startsWith('!')).map(r => r.slice(1).trim()).filter(Boolean);
+  const mode = document.querySelector('input[name="filter-mode"]:checked')?.value || 'exclude';
+  const cleanRules = rules.map(r => r.trim()).filter(Boolean);
 
   let kept = 0, removed = 0;
   for (const row of allRows) {
-    // Nếu có bất kỳ từ exclude nào khớp → xóa dòng
-    const shouldExclude = excludes.some(term => rowMatchesTerm(row, term));
-    if (shouldExclude) { removed++; continue; }
-    // Nếu có điều kiện include (!abc) → chỉ giữ nếu khớp ít nhất 1
-    if (includes.length > 0) {
-      const matchesInclude = includes.some(term => rowMatchesTerm(row, term));
-      if (!matchesInclude) { removed++; continue; }
+    const isMatched = cleanRules.some(term => rowMatchesTerm(row, term));
+    if (mode === 'exclude') {
+      if (isMatched) {
+        removed++;
+      } else {
+        kept++;
+      }
+    } else {
+      if (isMatched) {
+        kept++;
+      } else {
+        removed++;
+      }
     }
-    kept++;
   }
   return { kept, removed, total: allRows.length };
 }
@@ -704,17 +709,18 @@ function updateFilterPreview() {
     return;
   }
   const { kept, removed, total } = calcFilterResult(rules);
-  const excludes = rules.filter(r => !r.startsWith('!'));
-  const includes = rules.filter(r => r.startsWith('!'));
   let html = `<span class="preview-stat">Tổng: <b>${total}</b></span>`;
-  if (excludes.length) html += `<span class="preview-remove">🗑 Xóa: <b>${removed}</b> dòng</span>`;
-  if (includes.length) html += `<span class="preview-keep">✅ Giữ lại: <b>${kept}</b> dòng</span>`;
+  html += `<span class="preview-remove">🗑 Xóa: <b>${removed}</b> dòng</span>`;
+  html += `<span class="preview-keep">✅ Giữ lại: <b>${kept}</b> dòng</span>`;
   preview.innerHTML = html;
   preview.className = 'filter-preview visible';
 }
 
-// Live preview khi gõ
+// Live preview khi gõ hoặc thay đổi chế độ lọc
 document.getElementById('filter-words-content').addEventListener('input', updateFilterPreview);
+document.querySelectorAll('input[name="filter-mode"]').forEach(radio => {
+  radio.addEventListener('change', updateFilterPreview);
+});
 
 document.getElementById('btn-filter-words-cancel').onclick = () =>
   document.getElementById('modal-filter-words').classList.remove('open');
@@ -726,14 +732,13 @@ document.getElementById('btn-filter-words-apply').onclick = async () => {
     return;
   }
 
-  const excludes = rules.filter(r => !r.startsWith('!')).map(r => r.trim()).filter(Boolean);
-  const includes = rules.filter(r => r.startsWith('!')).map(r => r.slice(1).trim()).filter(Boolean);
+  const mode = document.querySelector('input[name="filter-mode"]:checked')?.value || 'exclude';
+  const cleanRules = rules.map(r => r.trim()).filter(Boolean);
 
   const allRows = getAllRows().filter(r => r.keyword || r.title || r.domain || r.main_title);
   const filtered = allRows.filter(row => {
-    if (excludes.some(term => rowMatchesTerm(row, term))) return false;
-    if (includes.length > 0 && !includes.some(term => rowMatchesTerm(row, term))) return false;
-    return true;
+    const isMatched = cleanRules.some(term => rowMatchesTerm(row, term));
+    return mode === 'exclude' ? !isMatched : isMatched;
   });
 
   const removed = allRows.length - filtered.length;

@@ -258,6 +258,58 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);
   background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
 
 /* ── Filter Words Modal ── */
+.filter-mode-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.filter-radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg3);
+  color: var(--text2);
+  transition: all .15s ease;
+  user-select: none;
+}
+.filter-radio-label:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.form-group input[type="radio"] {
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+.filter-radio-label input[type="radio"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+  margin: 0;
+  width: auto;
+  height: auto;
+}
+.filter-radio-label:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(59, 130, 246, 0.08);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+[data-theme="dark"] .filter-radio-label:has(input:checked) {
+  background: rgba(79, 126, 248, 0.12);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
 .filter-syntax-guide{
   display:flex;align-items:center;gap:8px;flex-wrap:wrap;
   background:var(--bg3);border:1px solid var(--border);border-radius:8px;
