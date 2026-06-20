@@ -188,6 +188,16 @@ function initGrid() {
       }
       autoSave();
     },
+    onCellEditingStarted: params => {
+      const colId = params.column.getColId();
+      setTimeout(() => {
+        const inputEl = document.querySelector('.ag-cell-inline-editing input');
+        if (inputEl && inputEl.value) {
+          params.node.data[colId] = inputEl.value;
+          autoSave();
+        }
+      }, 50);
+    },
     onGridReady: () => loadData(),
     onCellFocused: () => { gridHasFocus = true; },
 
