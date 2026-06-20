@@ -159,10 +159,11 @@
 <!-- Modal KW Files -->
 <div class="modal-overlay" id="modal-kwfiles">
   <div class="modal modal-wide">
-    <h2>📝 Chỉnh sửa Keyword Files</h2>
+    <h2>📝 Chỉnh sửa Keyword Files & Mẫu Thay Thế</h2>
     <div class="kwf-tabs">
       <button class="kwf-tab active" data-tab="kwf-all">📄 keywords.txt <span class="kwf-badge" id="kwf-count-all">0</span></button>
       <button class="kwf-tab" data-tab="kwf-priority">🎯 priority_titles.txt <span class="kwf-badge" id="kwf-count-priority">0</span></button>
+      <button class="kwf-tab" data-tab="kwf-constant">⚙️ Quản Lý Constant <span class="kwf-badge" id="kwf-count-constant">0</span></button>
     </div>
     <div class="kwf-panel active" id="kwf-all">
       <div class="form-group">
@@ -174,6 +175,12 @@
       <div class="form-group">
         <label>Lấy từ khóa mới điều kiện (Ký tự * ở 1 dòng nghĩa là lấy hết)</label>
         <textarea id="kwf-priority-content" rows="20" spellcheck="false" placeholder="Nhập từ khóa ưu tiên trong tiêu đề, mỗi dòng một từ..."></textarea>
+      </div>
+    </div>
+    <div class="kwf-panel" id="kwf-constant">
+      <div class="form-group" style="display:flex; flex-direction:column; min-height:430px">
+        <label>Chỉnh sửa trực tiếp REPLACEMENT_PATTERNS và MID_PATTERNS (Cú pháp Python)</label>
+        <textarea id="kwf-constant-content" style="flex:1; resize:vertical; font-family:'Cascadia Code','Fira Code','Consolas',monospace; font-size:11.5px; line-height:1.5" rows="20" spellcheck="false" placeholder="REPLACEMENT_PATTERNS = [...]&#10;&#10;MID_PATTERNS = [...]"></textarea>
       </div>
     </div>
     <div class="modal-footer">

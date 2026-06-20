@@ -409,3 +409,6 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);
 #zhannei-result-table td:nth-child(4){color:var(--success);white-space:nowrap;font-size:10.5px}
 #zhannei-result-table .zhannei-sep td{font-weight:700;color:var(--warning);font-size:10.5px;
   padding:3px 10px;border-bottom:1px solid var(--border);background:var(--bg3)}
+
+
+

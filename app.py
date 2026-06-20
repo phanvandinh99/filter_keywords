@@ -313,11 +313,36 @@ async def api_get_getnew_keywords():
     # Đọc thêm file priority_titles.txt (nếu chưa có sẽ tự động khởi tạo)
     load_priority_list()
     result["priority_titles"] = KEYWORDS_PRIORITY_FILE.read_text(encoding="utf-8")
+    
+    # Đọc khối text REPLACEMENT_PATTERNS và MID_PATTERNS từ constants.py
+    import constants
+    from pathlib import Path
+    file_path = Path(constants.__file__).resolve()
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    
+    start_idx = -1
+    end_idx = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith("REPLACEMENT_PATTERNS = ["):
+            start_idx = i
+        if start_idx != -1 and line.strip().startswith("MID_PATTERNS = ["):
+            for j in range(i + 1, len(lines)):
+                if lines[j].strip() == "]":
+                    end_idx = j
+                    break
+            break
+            
+    if start_idx != -1 and end_idx != -1:
+        result["constant_text"] = "\n".join(lines[start_idx:end_idx + 1])
+    else:
+        result["constant_text"] = ""
+        
     return result
 
 class GetnewKeywordsRequest(BaseModel):
     keywords: Optional[str] = None
     priority_titles: Optional[str] = None
+    constant_text: Optional[str] = None
 
 @app.post("/api/getnew-keywords")
 async def api_save_getnew_keywords(req: GetnewKeywordsRequest):
@@ -333,6 +358,53 @@ async def api_save_getnew_keywords(req: GetnewKeywordsRequest):
         lines_prio = [l for l in req.priority_titles.splitlines() if l.strip()]
         saved.append(f"priority_titles.txt ({len(lines_prio)} điều kiện lọc)")
         push_log(f"✅ Đã lưu priority_titles.txt — {len(lines_prio)} điều kiện lọc", "success")
+        
+    if req.constant_text is not None:
+        # Validate Python syntax via exec
+        try:
+            local_vars = {}
+            exec(req.constant_text, {}, local_vars)
+            new_rep = local_vars.get("REPLACEMENT_PATTERNS")
+            new_mid = local_vars.get("MID_PATTERNS")
+            if new_rep is None or new_mid is None:
+                raise ValueError("Không tìm thấy REPLACEMENT_PATTERNS hoặc MID_PATTERNS trong nội dung.")
+            if not isinstance(new_rep, list) or not isinstance(new_mid, list):
+                raise ValueError("REPLACEMENT_PATTERNS và MID_PATTERNS phải là dạng list.")
+        except Exception as e:
+            push_log(f"❌ Lỗi cú pháp Constant: {str(e)}", "error")
+            raise HTTPException(status_code=400, detail=f"Lỗi cú pháp constant: {str(e)}")
+            
+        import constants
+        from pathlib import Path
+        file_path = Path(constants.__file__).resolve()
+        lines = file_path.read_text(encoding="utf-8").splitlines()
+        
+        start_idx = -1
+        end_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip().startswith("REPLACEMENT_PATTERNS = ["):
+                start_idx = i
+            if start_idx != -1 and line.strip().startswith("MID_PATTERNS = ["):
+                for j in range(i + 1, len(lines)):
+                    if lines[j].strip() == "]":
+                        end_idx = j
+                        break
+                break
+                
+        if start_idx != -1 and end_idx != -1:
+            lines[start_idx:end_idx + 1] = [req.constant_text]
+            file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            
+            # Update in memory
+            constants.REPLACEMENT_PATTERNS.clear()
+            constants.REPLACEMENT_PATTERNS.extend(new_rep)
+            constants.MID_PATTERNS.clear()
+            constants.MID_PATTERNS.extend(new_mid)
+            
+            saved.append(f"constants.py ({len(new_rep)} rep, {len(new_mid)} mid)")
+            push_log(f"✅ Đã lưu constants.py — {len(new_rep)} rep, {len(new_mid)} mid", "success")
+        else:
+            raise HTTPException(status_code=500, detail="Không tìm thấy cấu trúc constants để ghi đè trong constants.py")
     return {"ok": True, "saved": saved}
 
 # ── Settings ───────────────────────────────────────────────────────────────────

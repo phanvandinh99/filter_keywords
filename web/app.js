@@ -1074,7 +1074,7 @@ document.getElementById('btn-hottrend-run').onclick = async () => {
 
 // ── KW Files (keywords.txt & priority_titles.txt) ──────────
 function countKwLines(text) {
-  return (text || '').split(/\r?\n/).filter(l => l.trim()).length;
+  return (text || '').split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#')).length;
 }
 
 function updateKwfCounts() {
@@ -1082,6 +1082,10 @@ function updateKwfCounts() {
     countKwLines(document.getElementById('kwf-all-content').value);
   document.getElementById('kwf-count-priority').textContent =
     countKwLines(document.getElementById('kwf-priority-content').value);
+  
+  const constText = document.getElementById('kwf-constant-content').value;
+  const ruleCount = (constText.match(/\(\s*["'].*?["']\s*,\s*["'].*?["']\s*\)/g) || []).length;
+  document.getElementById('kwf-count-constant').textContent = ruleCount;
 }
 
 // Tab switching
@@ -1097,6 +1101,7 @@ document.querySelectorAll('.kwf-tab').forEach(tab => {
 // Live count update
 document.getElementById('kwf-all-content').addEventListener('input', updateKwfCounts);
 document.getElementById('kwf-priority-content').addEventListener('input', updateKwfCounts);
+document.getElementById('kwf-constant-content').addEventListener('input', updateKwfCounts);
 
 document.getElementById('btn-edit-kwfiles').onclick = async () => {
   try {
@@ -1104,6 +1109,35 @@ document.getElementById('btn-edit-kwfiles').onclick = async () => {
     const d = await r.json();
     document.getElementById('kwf-all-content').value = d.keywords || '';
     document.getElementById('kwf-priority-content').value = d.priority_titles || '';
+    const defaultConstantText = `REPLACEMENT_PATTERNS = [
+    ("2025最新版v...", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("2025最新版V...", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("2026最新版v...", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("2026最新版V...", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("最新版v...", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("最新版V...", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("最新版...", "v{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("最新...", "版v{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("2025...", "最新版v{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("2026...", "最新版v{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("安卓版...", "-2265安卓网"),
+    ("2265...", "安卓网"),
+    ("安卓...", "版-2265安卓网"),
+    ("v...", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("V...", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("安卓版", "-2265安卓网"),
+]
+
+MID_PATTERNS = [
+    ("最新版下载v", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("最新版下载V", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("最新版v", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("最新版V", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("下载v", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+    ("下载V", "{getone name=\\"diy:banben\\" cacheid=\\"1\\"/} 安卓版-2265安卓网"),
+]`;
+    document.getElementById('kwf-constant-content').value = d.constant_text || defaultConstantText;
+    
     updateKwfCounts();
     // Reset to first tab
     document.querySelectorAll('.kwf-tab').forEach(t => t.classList.remove('active'));
@@ -1126,13 +1160,16 @@ document.getElementById('btn-kwfiles-save').onclick = async () => {
       body: JSON.stringify({
         keywords: document.getElementById('kwf-all-content').value,
         priority_titles: document.getElementById('kwf-priority-content').value,
+        constant_text: document.getElementById('kwf-constant-content').value,
       }),
     });
     if (res.ok) {
       document.getElementById('modal-kwfiles').classList.remove('open');
-      toast('Đã lưu keyword files', 'success');
+      toast('Đã lưu thành công!', 'success');
     } else {
-      toast('Lỗi lưu keyword files', 'error');
+      const errData = await res.json().catch(() => ({}));
+      const errMsg = errData.detail || 'Lỗi lưu dữ liệu';
+      toast(errMsg, 'error');
     }
   } catch (e) {
     toast('Lỗi: ' + e.message, 'error');

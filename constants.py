@@ -265,6 +265,45 @@ LOCATION_PROFILES = {
         "locale": "ja-JP",
         "timezone_id": "Asia/Tokyo",
         "geolocation": {"latitude": 35.6762, "longitude": 139.6503, "accuracy": 1000},
-    }
+    },
 }
 
+
+def save_patterns(rep_patterns, mid_patterns):
+    from pathlib import Path
+    
+    file_path = Path(__file__).resolve()
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    
+    def format_list(lst):
+        result = ["[\n"]
+        for p, r in lst:
+            result.append(f'    ({repr(p)}, {repr(r)}),\n')
+        result.append("]")
+        return "".join(result)
+
+    def replace_block(lines_list, var_name, new_block_str):
+        start_idx = -1
+        end_idx = -1
+        for i, line in enumerate(lines_list):
+            if line.strip().startswith(var_name + " = ["):
+                start_idx = i
+                for j in range(i + 1, len(lines_list)):
+                    if lines_list[j].strip() == "]":
+                        end_idx = j
+                        break
+                break
+        
+        if start_idx != -1 and end_idx != -1:
+            new_lines = new_block_str.splitlines()
+            lines_list[start_idx:end_idx + 1] = [var_name + " = " + new_lines[0]] + new_lines[1:]
+            return True
+        return False
+
+    rep_block = format_list(rep_patterns)
+    mid_block = format_list(mid_patterns)
+    
+    replace_block(lines, "REPLACEMENT_PATTERNS", rep_block)
+    replace_block(lines, "MID_PATTERNS", mid_block)
+    
+    file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
