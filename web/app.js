@@ -1386,10 +1386,11 @@ document.getElementById('btn-zhannei-run').onclick = async () => {
 
   try {
     const excludeExisting = document.getElementById('chk-zhannei-exclude-existing').checked;
+    const applyReplace = document.getElementById('chk-zhannei-apply-replace').checked;
     const res = await fetch('/api/zhannei', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domains, suffix, max_pages: maxPages, exclude_existing: excludeExisting }),
+      body: JSON.stringify({ domains, suffix, max_pages: maxPages, exclude_existing: excludeExisting, apply_replace: applyReplace }),
     });
     if (!res.ok) {
       const err = await res.json();

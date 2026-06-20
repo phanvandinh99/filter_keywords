@@ -687,7 +687,7 @@ def _is_golink_error(err_msg: str) -> bool:
     return any(k.lower() in err_msg.lower() for k in keywords)
 
 
-def _run_zhannei(domains: List[str], suffix: str, max_pages: int, exclude_existing: bool = True) -> None:
+def _run_zhannei(domains: List[str], suffix: str, max_pages: int, exclude_existing: bool = True, apply_replace: bool = True) -> None:
     """Cào ket qua tu zhannei.baidu.com, ho tro dung nhanh."""
     global _job_running, _zhannei_results_buffer
     total_found = 0
@@ -851,6 +851,12 @@ def _run_zhannei(domains: List[str], suffix: str, max_pages: int, exclude_existi
                     keyword = _extract_keyword(raw_title, block)
                     title = _re.sub(r'<[^>]+>', '', raw_title)
                     title = _re.sub(r'\s+', ' ', title).strip()
+                    if apply_replace:
+                        try:
+                            import search_keywords
+                            title, _, _ = search_keywords._process_title_patterns(title, keyword or "")
+                        except Exception as e:
+                            push_log(f"⚠️ Lỗi thay thế title: {e}", "warning")
 
                     sm = _re.search(r'class="c-showurl">(.*?)</span>', block, _re.DOTALL)
                     showurl = _re.sub(r'<[^>]+>', '', sm.group(1)).strip() if sm else ''
@@ -923,6 +929,7 @@ class ZhanneiRequest(BaseModel):
     suffix: str = "app"
     max_pages: int = 2
     exclude_existing: bool = True
+    apply_replace: bool = True
 
 
 @app.post("/api/zhannei")
@@ -939,7 +946,7 @@ async def api_zhannei(req: ZhanneiRequest):
     push_log(f"\U0001f577 Bat dau Zhannei \u2014 {len(req.domains)} domain, suffix='{req.suffix}'", "info")
     threading.Thread(
         target=_run_zhannei,
-        args=(req.domains, req.suffix, req.max_pages, req.exclude_existing),
+        args=(req.domains, req.suffix, req.max_pages, req.exclude_existing, req.apply_replace),
         daemon=True
     ).start()
     return {"ok": True}
