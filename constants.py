@@ -17,31 +17,31 @@ TIME_PRIORITY = {
 
 # Replacement patterns (sắp xếp từ dài đến ngắn để match pattern dài hơn trước)
 REPLACEMENT_PATTERNS = [
-    ("2025最新版v...", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("2025最新版V...", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("2026最新版v...", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("2026最新版V...", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("最新版v...", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("最新版V...", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("最新版...", "v{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("最新...", "版v{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("2025...", "最新版v{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("2026...", "最新版v{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("2025最新版v...", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("2025最新版V...", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("2026最新版v...", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("2026最新版V...", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("最新版v...", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("最新版V...", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("最新版...", "v{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("最新...", "版v{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("2025...", "最新版v{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("2026...", "最新版v{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
     ("安卓版...", "-2265安卓网"),
     ("2265...", "安卓网"),
     ("安卓...", "版-2265安卓网"),
-    ("v...", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("V...", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("v...", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("V...", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
     ("安卓版", "-2265安卓网"),
 ]
 
 MID_PATTERNS = [
-    ("最新版下载v", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("最新版下载V", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("最新版v", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("最新版V", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("下载v", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
-    ("下载V", "{getone name=\"diy:banben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("最新版下载v", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("最新版下载V", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("最新版v", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("最新版V", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("下载v", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
+    ("下载V", "{getone name=\"diy:bben\" cacheid=\"1\"/} 安卓版-2265安卓网"),
 ]
 
 # Browser configuration
