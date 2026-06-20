@@ -880,11 +880,12 @@ def _run_zhannei(domains: List[str], suffix: str, max_pages: int, exclude_existi
                     _zhannei_results_buffer.append({
                         "keyword": keyword,
                         "title": title,
-                        "domain": base_domain
+                        "domain": base_domain,
+                        "page": page_idx + 1
                     })
 
                     push({"type": "zhannei_result",
-                          "keyword": keyword, "title": title, "domain": base_domain})
+                          "keyword": keyword, "title": title, "domain": base_domain, "page": page_idx + 1})
                     domain_count += 1
                     total_found += 1
                     page_count += 1

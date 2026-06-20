@@ -552,7 +552,7 @@ function handleMsg(msg) {
     const isDuplicate = zhanneiResults.some(r => r.keyword.trim().toLowerCase() === kwLower);
     if (isDuplicate) return;
 
-    const item = { keyword: msg.keyword, title: msg.title, domain: msg.domain };
+    const item = { keyword: msg.keyword, title: msg.title, domain: msg.domain, page: msg.page };
     zhanneiResults.push(item);
     zhanneiAppendRow(item, zhanneiResults.length);
     document.getElementById('zhannei-status').textContent = `Đã tìm: ${zhanneiResults.length} kết quả`;
@@ -1327,7 +1327,8 @@ function zhanneiAppendRow(item, index) {
   const tr = document.createElement('tr');
   const kw = (item.keyword || '').replace(/</g, '&lt;');
   const tl = (item.title || '').replace(/</g, '&lt;');
-  tr.innerHTML = `<td>${index}</td><td title="${kw}">${kw}</td><td title="${tl}">${tl}</td><td>${item.domain || ''}</td>`;
+  const pg = item.page || '';
+  tr.innerHTML = `<td>${index}</td><td title="${kw}">${kw}</td><td title="${tl}">${tl}</td><td>${item.domain || ''}</td><td>${pg}</td>`;
   tbody.appendChild(tr);
   const wrap = document.querySelector('.zhannei-table-wrap');
   if (wrap) wrap.scrollTop = wrap.scrollHeight;
@@ -1337,7 +1338,7 @@ function zhanneiAppendSep(domain, suffix) {
   const tbody = document.getElementById('zhannei-result-body');
   const tr = document.createElement('tr');
   tr.className = 'zhannei-sep';
-  tr.innerHTML = `<td colspan="4">\uD83C\uDF10 ${domain} + "${suffix}"</td>`;
+  tr.innerHTML = `<td colspan="5">\uD83C\uDF10 ${domain} + "${suffix}"</td>`;
   tbody.appendChild(tr);
 }
 
@@ -1469,10 +1470,10 @@ document.getElementById('btn-zhannei-add').onclick = async () => {
   const newRows = zhanneiResults.map((item, i) => ({
     stt: maxStt + i + 1,
     keyword: item.keyword,
-    title: item.title,
+    title: '',
     domain: item.domain,
     time_tag: '',
-    main_title: '',
+    main_title: item.title,
   }));
   const existing = allRows.filter(r => r.keyword || r.title || r.domain || r.main_title);
   setGridDataEnsuringEmptyRow([...existing, ...newRows]);
