@@ -20,7 +20,7 @@
 </div>
 
 <div id="toolbar">
-  <button class="btn" id="btn-dedup" title="Loại bỏ các từ khóa trùng lặp trong danh sách">🧹 Xóa rùng lặp</button>
+  <button class="btn" id="btn-dedup" title="Loại bỏ các từ khóa trùng lặp trong danh sách">🧹 Xóa trùng lặp</button>
   <button class="btn danger" id="btn-banned" title="Lọc và xóa các từ khóa chứa từ cấm">🚫 Lọc nhanh</button>
   <div class="sep"></div>
   <label class="chk-headless" title="Ẩn trình duyệt Chrome khi tìm kiếm (headless mode)"><input type="checkbox" id="chk-headless"> Ẩn Chrome</label>
@@ -105,11 +105,11 @@
       <div class="filter-mode-row">
         <label class="filter-radio-label">
           <input type="radio" name="filter-mode" value="exclude" checked>
-          Xóa
+          Loại
         </label>
         <label class="filter-radio-label">
           <input type="radio" name="filter-mode" value="include">
-          Lấy
+          Chọn
         </label>
       </div>
     </div>
@@ -134,8 +134,8 @@
     </div>
     <div class="modal-footer">
       <button class="btn" id="btn-seed-cancel">Hủy</button>
-      <button class="btn primary" id="btn-seed-keywords-only">🔑 Tìm Keywords</button>
-      <button class="btn success" id="btn-seed-run">🚀 Tìm title</button>
+      <button class="btn primary" id="btn-seed-keywords-only">🔑 Chỉ tìm keyword</button>
+      <button class="btn success" id="btn-seed-run">🚀 Tìm keyword + title mới</button>
     </div>
   </div>
 </div>
@@ -145,15 +145,13 @@
   <div class="modal">
     <h2>🔥 Hottrend — Lấy từ khóa 大家还在搜</h2>
     <div class="form-group">
-      <label>Nhập từ khóa seed — mỗi dòng một từ (Baidu sẽ tìm kiếm từng từ này và lấy phần 大家还在搜)</label>
-      <textarea id="hottrend-seed-content" rows="10" placeholder="họp
-không gian
-..."></textarea>
+      <label>Lấy từ khóa liên quan</label>
+      <textarea id="hottrend-seed-content" rows="10" placeholder="Nhập từ khóa"></textarea>
     </div>
     <div class="modal-footer">
       <button class="btn" id="btn-hottrend-cancel">Hủy</button>
-      <button class="btn hottrend" id="btn-hottrend-keywords-only" title="Chỉ lấy từ khóa hottrend vào bảng, không tìm title">🔥 Lấy Keywords</button>
-      <button class="btn success" id="btn-hottrend-run" title="Lấy từ khóa hottrend rồi tự động tìm Baidu title">🚀 Lấy + Tìm Title</button>
+      <button class="btn hottrend" id="btn-hottrend-keywords-only" title="Chỉ lấy từ khóa hottrend vào bảng, không tìm title">🔥 Chỉ tìm keyword</button>
+      <button class="btn success" id="btn-hottrend-run" title="Lấy từ khóa hottrend rồi tự động tìm Baidu title">🚀 Tìm keyword + title mới</button>
     </div>
   </div>
 </div>
