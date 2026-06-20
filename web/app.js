@@ -179,6 +179,15 @@ function initGrid() {
       }
       autoSave();
     },
+    onCellEditingStopped: params => {
+      const allRows = getAllRows();
+      const lastRow = allRows[allRows.length - 1];
+      if (lastRow && (lastRow.keyword || lastRow.title || lastRow.domain || lastRow.main_title)) {
+         gridApi.applyTransaction({ add: [{ stt: allRows.length + 1, keyword: '', title: '', domain: '', time_tag: '', main_title: '' }] });
+         updateCount();
+      }
+      autoSave();
+    },
     onGridReady: () => loadData(),
     onCellFocused: () => { gridHasFocus = true; },
 
@@ -210,6 +219,26 @@ function initGrid() {
         }
       }
     },
+  });
+
+  // Tự động lưu giá trị mới ngay khi đang gõ (on input) mà không cần nhấn Enter
+  document.getElementById('myGrid').addEventListener('input', (event) => {
+    const target = event.target;
+    if (target && target.tagName === 'INPUT' && target.closest('.ag-cell')) {
+      const cellEl = target.closest('.ag-cell');
+      const rowEl = target.closest('.ag-row');
+      if (cellEl && rowEl) {
+        const colId = cellEl.getAttribute('col-id');
+        const rowId = rowEl.getAttribute('row-id');
+        if (colId && rowId) {
+          const rowNode = gridApi.getRowNode(rowId);
+          if (rowNode) {
+            rowNode.data[colId] = target.value;
+            autoSave();
+          }
+        }
+      }
+    }
   });
 }
 
@@ -442,6 +471,10 @@ function handleMsg(msg) {
   else if (msg.type === 'refresh_data') setGridDataEnsuringEmptyRow(msg.rows);
   // ── Zhannei messages ──
   else if (msg.type === 'zhannei_result') {
+    const kwLower = msg.keyword.trim().toLowerCase();
+    const isDuplicate = zhanneiResults.some(r => r.keyword.trim().toLowerCase() === kwLower);
+    if (isDuplicate) return;
+
     const item = { keyword: msg.keyword, title: msg.title, domain: msg.domain };
     zhanneiResults.push(item);
     zhanneiAppendRow(item, zhanneiResults.length);
@@ -602,6 +635,16 @@ async function runSearch(action) {
     clearTimeout(window._phase2Timer);
     window._phase2Timer = null;
   }
+
+  // Dừng chỉnh sửa ô và lưu lại trước khi chạy tìm kiếm
+  if (gridApi) gridApi.stopEditing();
+  try {
+    await saveData();
+  } catch (e) {
+    toast('Lỗi lưu trước khi chạy: ' + e.message, 'error');
+    return;
+  }
+
   setRunning(true);
   const headless = document.getElementById('chk-headless').checked;
   try {
@@ -642,10 +685,16 @@ document.getElementById('btn-stop').onclick = () => fetch('/api/stop', { method:
 // ── Toolbar actions ────────────────────────────────────────────
 document.getElementById('btn-dedup').onclick = async () => {
   if (!confirm('Loại bỏ từ khóa trùng lặp?')) return;
-  const res = await fetch('/api/keywords/deduplicate', { method: 'POST' });
-  const d = await res.json();
-  setGridDataEnsuringEmptyRow(d.rows);
-  toast(`Đã xóa ${d.removed} trùng lặp`, 'success');
+  if (gridApi) gridApi.stopEditing();
+  try {
+    await saveData();
+    const res = await fetch('/api/keywords/deduplicate', { method: 'POST' });
+    const d = await res.json();
+    setGridDataEnsuringEmptyRow(d.rows);
+    toast(`Đã xóa ${d.removed} trùng lặp`, 'success');
+  } catch (e) {
+    toast('Lỗi khi xóa trùng lặp: ' + e.message, 'error');
+  }
 };
 
 document.getElementById('btn-banned').onclick = () => {
@@ -804,7 +853,15 @@ document.getElementById('file-input').onchange = async e => {
   toast(`Import ${d.rows.length} từ khóa`, 'success');
   e.target.value = '';
 };
-document.getElementById('btn-export').onclick = () => { window.location.href = '/api/export'; };
+document.getElementById('btn-export').onclick = async () => {
+  if (gridApi) gridApi.stopEditing();
+  try {
+    await saveData();
+    window.location.href = '/api/export';
+  } catch (e) {
+    toast('Lỗi lưu trước khi xuất file: ' + e.message, 'error');
+  }
+};
 
 // ── Settings ───────────────────────────────────────────────────
 document.getElementById('btn-settings').onclick = async () => {
@@ -1214,10 +1271,11 @@ document.getElementById('btn-zhannei-run').onclick = async () => {
   document.getElementById('btn-zhannei-stop').style.display = '';
 
   try {
+    const excludeExisting = document.getElementById('chk-zhannei-exclude-existing').checked;
     const res = await fetch('/api/zhannei', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domains, suffix, max_pages: maxPages }),
+      body: JSON.stringify({ domains, suffix, max_pages: maxPages, exclude_existing: excludeExisting }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -1230,11 +1288,12 @@ document.getElementById('btn-zhannei-run').onclick = async () => {
     }
     // ── Polling fallback (hiện log ngay cả khi WebSocket bị ngắt) ──
     let _pollLogIndex = 0;
+    let _pollResultIndex = 0;
     clearInterval(window._zhanneiPollTimer);
     window._zhanneiPollTimer = setInterval(async () => {
       if (!_zhanneiRunning) { clearInterval(window._zhanneiPollTimer); return; }
       try {
-        const r = await fetch(`/api/zhannei/status?since=${_pollLogIndex}`);
+        const r = await fetch(`/api/zhannei/status?since=${_pollLogIndex}&results_since=${_pollResultIndex}`);
         if (!r.ok) return;
         const d = await r.json();
         // Cộng dồn log mới vào panel (tránh trùng với WebSocket)
@@ -1245,6 +1304,25 @@ document.getElementById('btn-zhannei-run').onclick = async () => {
           if (!already) appendZhanneiLog(entry.text, entry.level);
         }
         _pollLogIndex = d.log_count;  // cập nhật vị trí
+        
+        // Nhận kết quả mới từ polling nếu có
+        if (d.results && d.results.length > 0) {
+          for (const item of d.results) {
+            const kwLower = item.keyword.trim().toLowerCase();
+            const isDuplicate = zhanneiResults.some(r => r.keyword.trim().toLowerCase() === kwLower);
+            if (isDuplicate) continue;
+
+            zhanneiResults.push(item);
+            zhanneiAppendRow(item, zhanneiResults.length);
+            document.getElementById('zhannei-status').textContent = `Đã tìm: ${zhanneiResults.length} kết quả`;
+            document.getElementById('zhannei-add-count').textContent = zhanneiResults.length;
+            document.getElementById('btn-zhannei-add').disabled = false;
+          }
+        }
+        if (d.results_count !== undefined) {
+          _pollResultIndex = d.results_count;
+        }
+
         // Nếu server báo job done → dừng poll
         if (!d.running && _zhanneiRunning) {
           // Không có zhannei_done qua WS → tự reset

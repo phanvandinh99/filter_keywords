@@ -36,6 +36,7 @@ _msg_queue: queue.Queue = queue.Queue()
 _stop_event: threading.Event = threading.Event()
 _job_running: bool = False
 _log_buffer: deque = deque(maxlen=200)   # buffer 200 log gan nhat (cho polling fallback)
+_zhannei_results_buffer: list = []       # buffer ket qua zhannei (cho polling fallback)
 _active_chrome_pid: Optional[int] = None   # PID Chrome dang chay (de force-kill khi dung)
 
 
@@ -455,76 +456,112 @@ class WSStream:
 import re as _re
 
 ZHANNEI_STRIP_SUFFIXES = [
-    r'官方版下载$', r'官方版免费版$', r'官方版官方版$', r'免费版下载$',
-    r'官方版$', r'免费版$', r'最新版$', r'安卓版$',
-    r'版下载$', r'版免费版$', r'版官方版$', r'下载$',
+    # Long complex spam tails first
+    r'(?i)最新下载IOS/安卓版/手机版APP$',
+    r'(?i)最新下载安卓版/手机版APP$',
+    r'(?i)最新下载IOS/安卓版APP$',
+    r'(?i)最新下载手机版APP$',
+    r'(?i)最新下载安卓版APP$',
+    r'(?i)最新下载APP$',
+    r'(?i)最新下载$',
+    r'(?i)IOS/安卓版/手机版APP$',
+    r'(?i)安卓版/手机版APP$',
+    r'(?i)IOS/安卓版APP$',
+    r'(?i)IOS/手机版APP$',
+    r'(?i)IOS/手机版app$',
+    r'(?i)安卓/手机版APP$',
+    r'(?i)安卓/手机版app$',
+    r'(?i)IOS/手机APP$',
+    r'(?i)IOS/手机app$',
+    r'(?i)安卓/手机APP$',
+    r'(?i)安卓/手机app$',
+    r'(?i)手机版APP$',
+    r'(?i)安卓版APP$',
+    r'(?i)ios/安卓通用版$',
+    r'(?i)安卓/ios通用版$',
+    r'(?i)ios/安卓/网页通用版$',
+    r'(?i)ios/安卓/网页$',
+    r'(?i)ios/安卓$',
+    r'(?i)安卓/ios$',
+    r'(?i)苹果/安卓手机$',
+    r'(?i)安卓/苹果手机$',
+    r'(?i)苹果/安卓$',
+    r'(?i)安卓/苹果$',
+    r'(?i)网页版登录入口/手机版$',
+    r'(?i)网页版登录入口$',
+    r'(?i)网页版登录$',
+    r'(?i)网页登录入口$',
+    r'(?i)网页登录$',
+    r'(?i)网站/网页版登录入口/手机版$',
+    
+    # Version patterns
+    r'(?i)[vV]\.?\d+[\d\.]*$',
+    r'(?i)\(综合\)$',
+    r'(?i)（综合）$',
+    
+    # General modifiers
+    r'(?i)官方版下载$', r'(?i)官方版免费版$', r'(?i)官方版官方版$', r'(?i)免费版下载$',
+    r'(?i)官方版$', r'(?i)免费版$', r'(?i)最新版$', r'(?i)安卓版$',
+    r'(?i)版下载$', r'(?i)版免费版$', r'(?i)版官方版$', r'(?i)下载$',
+    r'(?i)网页版$', r'(?i)苹果版$', r'(?i)电脑版$', r'(?i)通用版$',
+    r'(?i)在线$',
+    r'(?i)官方网站$', r'(?i)官方平台$',
+    r'(?i)官网入口$', r'(?i)登录入口$', r'(?i)网站入口$',
+    r'(?i)官网$', r'(?i)入口$', r'(?i)登录$',
+    r'(?i)(手机|安卓|苹果|ios|官方|最新|免费)版?APP$',
+    r'(?i)(手机|安卓|苹果|ios|官方|最新|免费)版?app$',
+    r'(?i)\(官方\)$', r'(?i)（官方）$', r'(?i)官方$',
 ]
 
 def _extract_keyword(title: str, block: str = "") -> str:
-    """Lấy phần trước dấu '-' đầu tiên rồi strip các suffix quảng cáo, ưu tiên tìm từ khóa khớp trong abstract."""
+    """Trich tu khoa theo thu tu uu tien:
+    - Neu abstract bat dau bang [base_kw] + "下载" thi lay [base_kw] + "下载"
+    - Neu khong thi lay [base_kw] tu title (qua em tag hoac fallback split '-')
+    """
     if not title:
         return ''
+
+    # 1. Extract base keyword candidate
+    candidate = ''
+    em_m = _re.search(r'([^<]*?)<em[^>]*>(.*?)</em>', title)
+    if em_m:
+        prefix_raw = em_m.group(1).strip()
+        em_content = _re.sub(r'<[^>]+>', '', em_m.group(2)).strip()
+        if em_content:
+            prefix_token = _re.split(r'[\s\u3000]+', prefix_raw)[-1] if prefix_raw else ''
+            candidate = (prefix_token + em_content).strip()
     
-    clean_title = _re.sub(r'<[^>]+>', '', title)
-    clean_title = _re.sub(r'\s+', ' ', clean_title).strip()
-    
-    # 1. Tìm các ứng viên ở c-abstract
-    if block:
-        abstract_m = _re.search(r'class="c-abstract">(.*?)</div>', block, _re.DOTALL)
-        if abstract_m:
-            abstract = abstract_m.group(1)
-            clean_abstract = _re.sub(r'<[^>]+>', '', abstract)
-            clean_abstract = _re.sub(r'\s+', ' ', clean_abstract).strip()
-            
-            candidates = []
+    if not candidate:
+        clean_title = _re.sub(r'<[^>]+>', '', title)
+        clean_title = _re.sub(r'\s+', ' ', clean_title).strip()
+        candidate = clean_title.split('-')[0].strip()
 
-            # A. Trích xuất các nội dung trong “”, "", 《》, 【】
-            patterns = [
-                r'“([^”]+)”',
-                r'《([^》]+)》',
-                r'【([^】]+)】',
-                r'"([^"]+)"'
-            ]
-            for pattern in patterns:
-                found = _re.findall(pattern, clean_abstract)
-                for f in found:
-                    candidates.append(f.strip())
-            
-            # B. Trích xuất các khối từ \w+ (bao gồm chữ Trung, Anh, số ngăn cách bởi biểu tượng/emoji/dấu câu/khoảng trắng)
-            words = _re.findall(r'\w+', clean_abstract)
-            for w in words:
-                candidates.append(w.strip())
+    # 2. Run recursive suffix stripping on the candidate
+    prev = ""
+    while prev != candidate:
+        prev = candidate
+        for pattern in ZHANNEI_STRIP_SUFFIXES:
+            candidate = _re.sub(pattern, '', candidate).strip()
+        # Strip trailing punctuation/separators, preserving brackets
+        candidate = _re.sub(r'[\s\-\_\/\|\+\.\,\;]+$', '', candidate).strip()
 
-            # C. Tìm ứng viên dựa trên từ khóa kết thúc bằng "官网-APP下载" (hoặc biến thể)
-            for m in _re.finditer(r'(.*?)(?:官网\s*-\s*(?:APP|app)\s*下载)', clean_abstract, _re.IGNORECASE):
-                prefix_part = m.group(1).strip()
-                if prefix_part:
-                    # Tìm suffix dài nhất của prefix_part mà clean_title bắt đầu bằng nó
-                    for i in range(len(prefix_part)):
-                        sub = prefix_part[i:].strip()
-                        if len(sub) >= 2:
-                            candidates.append(sub)
+    title_kw = candidate
 
-            # Lọc các ứng viên khớp với phần đầu của title (không phân biệt hoa thường)
-            valid_candidates = []
-            title_lower = clean_title.lower()
-            for cand in candidates:
-                if cand and len(cand) >= 2:
-                    cand_lower = cand.lower()
-                    if title_lower.startswith(cand_lower):
-                        valid_candidates.append(cand)
-            
-            if valid_candidates:
-                # Sắp xếp theo chiều dài giảm dần để ưu tiên từ dài nhất
-                valid_candidates.sort(key=len, reverse=True)
-                return valid_candidates[0]
+    # 3. Kiem tra neu abstract bat dau bang [base_kw] + "下载"
+    if title_kw and block:
+        am = _re.search(r'class="c-abstract">(.*?)</div>', block, _re.DOTALL)
+        if am:
+            abstract_raw = am.group(1)
+            clean_abs = _re.sub(r'<[^>]+>', '', abstract_raw)
+            # Bo khoang trang de so sanh chinh xac
+            clean_abs_nospace = _re.sub(r'\s+', '', clean_abs).lower()
+            clean_kw_nospace = _re.sub(r'\s+', '', title_kw).lower()
+            if clean_abs_nospace.startswith(clean_kw_nospace + "下载"):
+                if not title_kw.endswith("下载"):
+                    return title_kw + "下载"
+                return title_kw
 
-    # 2. Fallback: logic cũ (chia tách theo '-' và xóa suffix)
-    part = clean_title.split('-')[0].strip()
-    for pattern in ZHANNEI_STRIP_SUFFIXES:
-        part = _re.sub(pattern, '', part).strip()
-    return part
-
+    return title_kw
 def _extract_base_domain(showurl: str) -> str:
     """Trích base domain từ c-showurl text. Ví dụ: 'mobile.szetnl.com/...' → 'szetnl.com'"""
     if not showurl:
@@ -578,10 +615,20 @@ def _is_golink_error(err_msg: str) -> bool:
     return any(k.lower() in err_msg.lower() for k in keywords)
 
 
-def _run_zhannei(domains: List[str], suffix: str, max_pages: int) -> None:
+def _run_zhannei(domains: List[str], suffix: str, max_pages: int, exclude_existing: bool = True) -> None:
     """Cào ket qua tu zhannei.baidu.com, ho tro dung nhanh."""
-    global _job_running
+    global _job_running, _zhannei_results_buffer
     total_found = 0
+    skipped_existing = 0
+    seen_kws = set()
+
+    existing_kws = set()
+    if exclude_existing and KEYWORDS_FILE.exists():
+        try:
+            content = KEYWORDS_FILE.read_text(encoding="utf-8")
+            existing_kws = {l.strip().lower() for l in content.splitlines() if l.strip()}
+        except Exception as e:
+            push_log(f"⚠️ Không thể đọc keywords.txt để loại trùng: {e}", "warning")
 
     # Dedup domains
     seen_d: set = set()
@@ -714,6 +761,9 @@ def _run_zhannei(domains: List[str], suffix: str, max_pages: int) -> None:
                 footer_m = _re.search(r'id="pageFooter"', html_text)
                 area_end = footer_m.start() if footer_m else len(html_text)
                 page_count = 0
+                page_dup_existing = 0
+                page_dup_current = 0
+                page_invalid = 0
 
                 for i, start in enumerate(starts):
                     if start >= area_end:
@@ -723,29 +773,62 @@ def _run_zhannei(domains: List[str], suffix: str, max_pages: int) -> None:
 
                     tm = _re.search(r'cpos=["\']title["\'][^>]*>(.*?)</a>', block, _re.DOTALL)
                     if not tm:
+                        page_invalid += 1
                         continue
-                    title = _re.sub(r'<[^>]+>', '', tm.group(1))
+                    raw_title = tm.group(1)
+                    keyword = _extract_keyword(raw_title, block)
+                    title = _re.sub(r'<[^>]+>', '', raw_title)
                     title = _re.sub(r'\s+', ' ', title).strip()
-                    keyword = _extract_keyword(title, block)
 
                     sm = _re.search(r'class="c-showurl">(.*?)</span>', block, _re.DOTALL)
                     showurl = _re.sub(r'<[^>]+>', '', sm.group(1)).strip() if sm else ''
                     base_domain = _extract_base_domain(showurl) or domain
 
-                    if keyword:
-                        push({"type": "zhannei_result",
-                              "keyword": keyword, "title": title, "domain": base_domain})
-                        domain_count += 1
-                        total_found += 1
-                        page_count += 1
+                    if not keyword:
+                        page_invalid += 1
+                        continue
 
-                push_log(f"  \u2705 Trang {page_idx + 1}: {page_count} ket qua", "success")
+                    kw_lower = keyword.strip().lower()
+                    if exclude_existing and kw_lower in existing_kws:
+                        page_dup_existing += 1
+                        skipped_existing += 1
+                        continue
+                    
+                    if kw_lower in seen_kws:
+                        page_dup_current += 1
+                        continue
+                    seen_kws.add(kw_lower)
+                    
+                    _zhannei_results_buffer.append({
+                        "keyword": keyword,
+                        "title": title,
+                        "domain": base_domain
+                    })
+
+                    push({"type": "zhannei_result",
+                          "keyword": keyword, "title": title, "domain": base_domain})
+                    domain_count += 1
+                    total_found += 1
+                    page_count += 1
+
+                log_parts = [f"Trang {page_idx + 1}: {page_count} moi"]
+                if page_dup_existing > 0:
+                    log_parts.append(f"{page_dup_existing} trung file")
+                if page_dup_current > 0:
+                    log_parts.append(f"{page_dup_current} trung trong ban")
+                if page_invalid > 0:
+                    log_parts.append(f"{page_invalid} khong hop le")
+
+                push_log(f"  \u2705 {', '.join(log_parts)}", "success")
 
                 if not _re.search(r'class="pager-next-foot', html_text):
                     break
                 time.sleep(0.3)
 
             push_log(f"\u2705 {domain}: {domain_count} ket qua", "success")
+
+        if exclude_existing and skipped_existing > 0:
+            push_log(f"ℹ️ Đã lọc bỏ {skipped_existing} từ khóa đã tồn tại trong keywords.txt", "info")
 
         push_log(
             f"\U0001f389 Xong! {total_found} ket qua / {len(unique_domains)} domain",
@@ -767,33 +850,39 @@ class ZhanneiRequest(BaseModel):
     domains: List[str]
     suffix: str = "app"
     max_pages: int = 2
+    exclude_existing: bool = True
 
 
 @app.post("/api/zhannei")
 async def api_zhannei(req: ZhanneiRequest):
-    global _job_running
+    global _job_running, _zhannei_results_buffer
     if _job_running:
         raise HTTPException(409, "Đang có tác vụ chạy. Nhấn Dừng trước.")
     if not req.domains:
         raise HTTPException(400, "Vui lòng nhập ít nhất một domain")
     _job_running = True
     _stop_event.clear()
+    _zhannei_results_buffer.clear()
+    _log_buffer.clear()
     push_log(f"\U0001f577 Bat dau Zhannei \u2014 {len(req.domains)} domain, suffix='{req.suffix}'", "info")
     threading.Thread(
         target=_run_zhannei,
-        args=(req.domains, req.suffix, min(req.max_pages, 10)),
+        args=(req.domains, req.suffix, req.max_pages, req.exclude_existing),
         daemon=True
     ).start()
     return {"ok": True}
 
 @app.get("/api/zhannei/status")
-async def api_zhannei_status(since: int = 0):
-    """Polling fallback: tra ve trang thai job va log buffer tu vi tri 'since'."""
+async def api_zhannei_status(since: int = 0, results_since: int = 0):
+    """Polling fallback: tra ve trang thai job, log buffer, va results buffer."""
     logs = list(_log_buffer)
+    results = list(_zhannei_results_buffer)
     return {
         "running": _job_running,
         "log_count": len(logs),
         "logs": logs[since:],   # chi tra logs moi (tu index 'since')
+        "results_count": len(results),
+        "results": results[results_since:],  # chi tra results moi (tu index 'results_since')
     }
 
 
