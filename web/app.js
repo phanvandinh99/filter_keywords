@@ -21,6 +21,73 @@ document.getElementById('btn-theme').onclick = () => {
   applyTheme(currentTheme === 'light' ? 'dark' : 'light');
 };
 
+// ── Log Collapse/Expand & Resize ─────────────────────────────────
+let isLogCollapsed = localStorage.getItem('kw-log-collapsed') === 'true';
+const logWrap = document.getElementById('log-wrap');
+const resizeHandle = document.getElementById('log-resize-handle');
+
+// Khôi phục chiều cao đã lưu
+let savedHeight = localStorage.getItem('kw-log-height') || '150';
+logWrap.style.height = `${savedHeight}px`;
+
+function applyLogCollapse(collapsed) {
+  isLogCollapsed = collapsed;
+  const toggleIcon = document.getElementById('log-toggle-icon');
+  if (collapsed) {
+    logWrap.classList.add('collapsed');
+    if (toggleIcon) toggleIcon.textContent = '▲';
+  } else {
+    logWrap.classList.remove('collapsed');
+    if (toggleIcon) toggleIcon.textContent = '▼';
+  }
+  localStorage.setItem('kw-log-collapsed', collapsed ? 'true' : 'false');
+}
+
+// Apply preference on load
+applyLogCollapse(isLogCollapsed);
+
+document.getElementById('log-header').onclick = () => {
+  applyLogCollapse(!isLogCollapsed);
+};
+
+// Logic kéo giãn chiều cao (Drag to Resize)
+let isResizingLog = false;
+resizeHandle.addEventListener('mousedown', (e) => {
+  if (isLogCollapsed) {
+    applyLogCollapse(false);
+  }
+  isResizingLog = true;
+  const startY = e.clientY;
+  const startHeight = logWrap.offsetHeight;
+
+  document.body.style.userSelect = 'none';
+  document.body.style.cursor = 'ns-resize';
+
+  const onMouseMove = (moveEvent) => {
+    if (!isResizingLog) return;
+    const dy = startY - moveEvent.clientY;
+    let newHeight = startHeight + dy;
+
+    // Giới hạn chiều cao tối thiểu (60px) và tối đa (70% màn hình)
+    if (newHeight < 60) newHeight = 60;
+    if (newHeight > window.innerHeight * 0.7) newHeight = window.innerHeight * 0.7;
+
+    logWrap.style.height = `${newHeight}px`;
+  };
+
+  const onMouseUp = () => {
+    isResizingLog = false;
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    localStorage.setItem('kw-log-height', logWrap.offsetHeight);
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+  };
+
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+});
+
 // ── State ──────────────────────────────────────────────────────
 let gridApi = null;
 let ws = null;
